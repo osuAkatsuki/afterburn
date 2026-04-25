@@ -57,7 +57,7 @@ export function Lobby({
             </button>
             <div className="join-row">
               <input
-                maxLength={6}
+                maxLength={24}
                 placeholder="CODE"
                 value={roomCode}
                 onChange={(event) => onRoomCodeChange(event.target.value.toUpperCase())}
