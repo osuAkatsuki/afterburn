@@ -1,5 +1,5 @@
 import { TICK_RATE } from "../../shared/constants.js";
-import { distance } from "../../shared/math.js";
+import { clamp, distance } from "../../shared/math.js";
 import { applyPlayerFlightStep } from "../../shared/simulation.js";
 import type { InputFrame, PlayerState, RoomState, Vec3 } from "../../shared/types.js";
 
@@ -161,12 +161,17 @@ export class LocalPredictionBuffer {
       return clone(targetPlayer);
     }
 
-    const previousPredictedPlayer = clone(this.predictedPlayer);
-    const predictedPlayer = authorityChanged ? clone(targetPlayer) : clone(previousPredictedPlayer);
-    applyPlayerFlightStep(predictedPlayer, this.inputs.at(-1) ?? targetPlayer.input, dt);
+    const latestInput = this.inputs.at(-1) ?? targetPlayer.input;
+    const continuousPlayer = clone(this.predictedPlayer);
+    applyPlayerFlightStep(continuousPlayer, latestInput, dt);
+
+    const predictedPlayer = authorityChanged ? clone(targetPlayer) : clone(continuousPlayer);
+    if (authorityChanged) {
+      applyPlayerFlightStep(predictedPlayer, latestInput, this.rebasePartialDt(latestInput, renderTime, dt));
+    }
 
     if (authorityChanged) {
-      const correction = subtractVec3(previousPredictedPlayer.position, predictedPlayer.position);
+      const correction = subtractVec3(continuousPlayer.position, predictedPlayer.position);
       const correctionMeters = magnitudeVec3(correction);
       this.lastCorrectionMeters = correctionMeters;
 
@@ -206,6 +211,14 @@ export class LocalPredictionBuffer {
     const dt = this.lastRenderTime > 0 ? Math.max(0, Math.min(0.1, (renderTime - this.lastRenderTime) / 1000)) : 1 / 60;
     this.lastRenderTime = renderTime;
     return dt;
+  }
+
+  private rebasePartialDt(input: InputFrame, renderTime: number, fallbackDt: number): number {
+    if (input.timestamp <= 0) {
+      return fallbackDt;
+    }
+
+    return clamp((renderTime - input.timestamp) / 1000, 0, REPLAY_DT_SECONDS);
   }
 
   private hasAuthoritativeChange(player: PlayerState): boolean {

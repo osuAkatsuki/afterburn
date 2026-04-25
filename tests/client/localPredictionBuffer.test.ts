@@ -96,6 +96,27 @@ describe("LocalPredictionBuffer", () => {
     expect(buffer.getStats().correctionEvents).toBe(correctionEvents);
   });
 
+  it("does not count normal frame motion as correction when an input is acknowledged", () => {
+    const buffer = new LocalPredictionBuffer();
+    const first = predictionRoom("PRED3C");
+    buffer.apply(first, "p1", 1000);
+
+    const localInput = input(1, { timestamp: 1008 });
+    buffer.recordInput(localInput);
+    buffer.apply(predictionRoom("PRED3C"), "p1", 1008);
+
+    const authoritative = predictionRoom("PRED3C");
+    authoritative.players.p1.lastInputSeq = 1;
+    authoritative.players.p1.input = localInput;
+    applyPlayerFlightStep(authoritative.players.p1, localInput, 0.008);
+
+    const correctionEvents = buffer.getStats().correctionEvents;
+    buffer.apply(authoritative, "p1", 1016);
+
+    expect(buffer.getStats().correctionEvents).toBe(correctionEvents);
+    expect(buffer.getStats().correctionLastMeters).toBeLessThan(0.01);
+  });
+
   it("does not smooth locally predicted input movement", () => {
     const buffer = new LocalPredictionBuffer();
     const first = predictionRoom("PRED4");
