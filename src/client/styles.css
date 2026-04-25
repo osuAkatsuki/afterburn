@@ -1,0 +1,390 @@
+:root {
+  color: #f8fafc;
+  background: #07111f;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  min-height: 42px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 6px;
+  color: #f8fafc;
+  background: rgb(15 23 42 / 82%);
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgb(255 255 255 / 42%);
+  background: rgb(30 41 59 / 92%);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+input {
+  min-height: 42px;
+  width: 100%;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 6px;
+  color: #f8fafc;
+  background: rgb(2 6 23 / 76%);
+  padding: 0 12px;
+  outline: none;
+}
+
+input:focus {
+  border-color: #67e8f9;
+}
+
+.shell,
+.viewport {
+  width: 100%;
+  height: 100%;
+}
+
+.viewport {
+  display: block;
+  cursor: crosshair;
+}
+
+.hud {
+  position: fixed;
+  inset: 18px auto auto 18px;
+  width: min(340px, calc(100vw - 36px));
+  padding: 14px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+  background: rgb(2 6 23 / 48%);
+  backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+
+.hud-top,
+.flight-readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.status-stack {
+  display: grid;
+  gap: 2px;
+}
+
+.status-stack strong {
+  font-size: 0.84rem;
+  letter-spacing: 0;
+}
+
+.status-stack span,
+.bars span,
+.flight-readout span {
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+}
+
+.timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.bars {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 12px;
+}
+
+.bars label {
+  display: grid;
+  grid-template-columns: 54px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+meter {
+  width: 100%;
+  height: 12px;
+}
+
+.flight-readout {
+  font-variant-numeric: tabular-nums;
+}
+
+.reticle {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 72px;
+  height: 72px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.reticle span {
+  position: absolute;
+  background: rgb(248 250 252 / 74%);
+}
+
+.reticle span:nth-child(1),
+.reticle span:nth-child(2) {
+  top: 50%;
+  width: 24px;
+  height: 2px;
+}
+
+.reticle span:nth-child(1) {
+  left: 0;
+}
+
+.reticle span:nth-child(2) {
+  right: 0;
+}
+
+.reticle span:nth-child(3),
+.reticle span:nth-child(4) {
+  left: 50%;
+  width: 2px;
+  height: 24px;
+}
+
+.reticle span:nth-child(3) {
+  top: 0;
+}
+
+.reticle span:nth-child(4) {
+  bottom: 0;
+}
+
+.radar {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: 128px;
+  height: 128px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  background:
+    linear-gradient(rgb(255 255 255 / 12%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 12%) 1px, transparent 1px),
+    rgb(2 6 23 / 50%);
+  background-size: 50% 50%;
+  backdrop-filter: blur(14px);
+}
+
+.radar b {
+  position: absolute;
+  inset: 12px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 50%;
+}
+
+.radar i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y)));
+  background: var(--pilot);
+}
+
+.radar i.enemy {
+  box-shadow: 0 0 0 4px rgb(248 113 113 / 20%);
+}
+
+.scoreboard {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  width: min(320px, calc(100vw - 36px));
+  padding: 12px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 8px;
+  background: rgb(2 6 23 / 72%);
+  backdrop-filter: blur(14px);
+}
+
+.scoreboard header,
+.scoreboard div,
+.final-scores div {
+  display: grid;
+  grid-template-columns: 18px 1fr 36px 36px;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+}
+
+.scoreboard header {
+  color: #cbd5e1;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.scoreboard span,
+.player-list span,
+.final-scores span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pilot);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: linear-gradient(180deg, rgb(7 17 31 / 28%), rgb(7 17 31 / 58%));
+}
+
+.panel {
+  width: min(480px, 100%);
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+  padding: 20px;
+  background: rgb(2 6 23 / 72%);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 28px 90px rgb(0 0 0 / 34%);
+}
+
+.panel.compact {
+  width: min(420px, 100%);
+}
+
+.brand-row,
+.room-code,
+.lobby-actions,
+.join-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-row,
+.room-code {
+  justify-content: space-between;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-size: clamp(1.7rem, 3vw, 2.4rem);
+  line-height: 1.05;
+}
+
+.brand-row span,
+.room-code span,
+.pilot-card label,
+.status-line,
+.player-list em,
+.final-scores em {
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  font-style: normal;
+}
+
+.pilot-card,
+.room-grid,
+.room-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.join-row input {
+  text-transform: uppercase;
+}
+
+.lobby-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.player-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.player-list li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 2px;
+}
+
+.status-line {
+  min-height: 20px;
+  margin: 14px 0 0;
+}
+
+.final-scores {
+  display: grid;
+  gap: 6px;
+  margin: 18px 0;
+}
+
+.final-scores div {
+  grid-template-columns: 18px 1fr auto;
+}
+
+.hidden {
+  display: none !important;
+}
+
+@media (max-width: 680px) {
+  .hud {
+    inset: 12px 12px auto 12px;
+    width: auto;
+  }
+
+  .radar {
+    width: 106px;
+    height: 106px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .lobby-actions,
+  .join-row {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+}
