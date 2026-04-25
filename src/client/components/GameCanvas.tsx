@@ -1,10 +1,8 @@
 import { useEffect, useRef, type RefObject } from "react";
-import type { StateSnapshotPayload } from "../../shared/types.js";
 import { DogfightScene, type SceneDebugStats } from "../game/DogfightScene.js";
-import type { LocalPredictionBuffer } from "../net/LocalPredictionBuffer.js";
-import { SnapshotBuffer } from "../net/SnapshotBuffer.js";
+import type { ClientWorldDebugStats, ClientWorldPresenter } from "../net/ClientWorldPresenter.js";
 
-export type ClientDebugStats = SceneDebugStats & {
+export type ClientDebugStats = SceneDebugStats & ClientWorldDebugStats & {
   fps: number;
   frameMs: number;
   worstFrameMs: number;
@@ -12,31 +10,13 @@ export type ClientDebugStats = SceneDebugStats & {
   frameSpikeMs: number;
   frameSpikeAgeMs: number;
   frameSpikeIntervalMs: number;
-  snapshotBufferMs: number;
-  snapshotDelayMs: number;
-  snapshotServerAgeMs: number;
-  pendingInputs: number;
-  predictedMs: number;
-  predictionLeadMeters: number;
-  correctionMeters: number;
-  correctionLastMeters: number;
-  correctionAgeMs: number;
-  correctionIntervalMs: number;
-  correctionEvents: number;
-  ackSeq: number;
-  ackDelta: number;
-  ackAgeMs: number;
-  ackIntervalMs: number;
 };
 
 type GameCanvasProps = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   reticleRef: RefObject<HTMLDivElement | null>;
   sceneRef: RefObject<DogfightScene | null>;
-  localPredictionRef: RefObject<LocalPredictionBuffer>;
-  snapshot?: StateSnapshotPayload;
-  serverClockOffsetMs?: number;
-  snapshotInterpolationDelayMs: number;
+  worldPresenterRef: RefObject<ClientWorldPresenter>;
   playerId: string;
   debugEnabled: boolean;
   onDebugStats: (stats: ClientDebugStats) => void;
@@ -46,10 +26,7 @@ export function GameCanvas({
   canvasRef,
   reticleRef,
   sceneRef,
-  localPredictionRef,
-  snapshot,
-  serverClockOffsetMs,
-  snapshotInterpolationDelayMs,
+  worldPresenterRef,
   playerId,
   debugEnabled,
   onDebugStats
@@ -57,29 +34,12 @@ export function GameCanvas({
   const debugEnabledRef = useRef(debugEnabled);
   const onDebugStatsRef = useRef(onDebugStats);
   const playerIdRef = useRef(playerId);
-  const snapshotBufferRef = useRef(new SnapshotBuffer());
 
   useEffect(() => {
     debugEnabledRef.current = debugEnabled;
     onDebugStatsRef.current = onDebugStats;
     playerIdRef.current = playerId;
   }, [debugEnabled, onDebugStats, playerId]);
-
-  useEffect(() => {
-    snapshotBufferRef.current.setServerClockOffset(serverClockOffsetMs);
-  }, [serverClockOffsetMs]);
-
-  useEffect(() => {
-    snapshotBufferRef.current.setInterpolationDelay(snapshotInterpolationDelayMs);
-  }, [snapshotInterpolationDelayMs]);
-
-  useEffect(() => {
-    if (snapshot) {
-      snapshotBufferRef.current.push(snapshot);
-    } else {
-      snapshotBufferRef.current.clear();
-    }
-  }, [snapshot]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -113,7 +73,7 @@ export function GameCanvas({
         frameSpikeMs = frameMs;
       }
 
-      const sampledRoom = localPredictionRef.current.apply(snapshotBufferRef.current.sample(now, playerIdRef.current), playerIdRef.current, now);
+      const sampledRoom = worldPresenterRef.current.sampleRoom(now, playerIdRef.current);
       if (sampledRoom) {
         scene.updateState(sampledRoom, playerIdRef.current);
       }
@@ -121,31 +81,16 @@ export function GameCanvas({
 
       if (debugEnabledRef.current && now - lastStatsAt >= 250 && statSampleCount > 0) {
         const averageFrameMs = totalFrameMs / statSampleCount;
-        const predictionStats = localPredictionRef.current.getStats();
         onDebugStatsRef.current({
           ...scene.getDebugStats(),
+          ...worldPresenterRef.current.getDebugStats(now),
           fps: averageFrameMs > 0 ? 1000 / averageFrameMs : 0,
           frameMs: averageFrameMs,
           worstFrameMs,
           frameSpikeCount,
           frameSpikeMs,
           frameSpikeAgeMs: frameSpikeAt > 0 ? now - frameSpikeAt : 0,
-          frameSpikeIntervalMs,
-          snapshotBufferMs: snapshotBufferRef.current.getBufferedMs(now),
-          snapshotDelayMs: snapshotBufferRef.current.getInterpolationDelayMs(),
-          snapshotServerAgeMs: snapshotBufferRef.current.getLatestServerAgeMs(now),
-          pendingInputs: predictionStats.pendingInputs,
-          predictedMs: predictionStats.predictedMs,
-          predictionLeadMeters: predictionStats.leadMeters,
-          correctionMeters: predictionStats.correctionMeters,
-          correctionLastMeters: predictionStats.correctionLastMeters,
-          correctionAgeMs: predictionStats.correctionAgeMs,
-          correctionIntervalMs: predictionStats.correctionIntervalMs,
-          correctionEvents: predictionStats.correctionEvents,
-          ackSeq: predictionStats.ackSeq,
-          ackDelta: predictionStats.ackDelta,
-          ackAgeMs: predictionStats.ackAgeMs,
-          ackIntervalMs: predictionStats.ackIntervalMs
+          frameSpikeIntervalMs
         });
         lastStatsAt = now;
         statSampleCount = 0;
@@ -162,7 +107,7 @@ export function GameCanvas({
       scene.destroy();
       sceneRef.current = null;
     };
-  }, [canvasRef, reticleRef, sceneRef]);
+  }, [canvasRef, reticleRef, sceneRef, worldPresenterRef]);
 
   return <canvas className="viewport" ref={canvasRef} />;
 }

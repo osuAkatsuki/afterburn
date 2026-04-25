@@ -14,7 +14,7 @@ import { DogfightScene } from "./game/DogfightScene.js";
 import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
-import { LocalPredictionBuffer } from "./net/LocalPredictionBuffer.js";
+import { ClientWorldPresenter } from "./net/ClientWorldPresenter.js";
 import { getSnapshotInterpolationDelayMs } from "./net/SnapshotBuffer.js";
 
 const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
@@ -23,7 +23,7 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
-  const localPredictionRef = useRef(new LocalPredictionBuffer());
+  const worldPresenterRef = useRef(new ClientWorldPresenter());
   const autoJoinAttempted = useRef(false);
 
   const {
@@ -86,13 +86,25 @@ export function App() {
     room,
     playerId,
     sendInput,
-    onLocalInput: (input) => localPredictionRef.current.recordInput(input),
+    onLocalInput: (input) => worldPresenterRef.current.recordInput(input),
     setScoreboardVisible
   });
 
   useEffect(() => {
-    localPredictionRef.current.clear();
+    worldPresenterRef.current.clearPrediction();
   }, [playerId, room?.id]);
+
+  useEffect(() => {
+    worldPresenterRef.current.setServerClockOffset(networkStats.serverClockSamples > 0 ? networkStats.serverClockOffsetMs : undefined);
+  }, [networkStats.serverClockOffsetMs, networkStats.serverClockSamples]);
+
+  useEffect(() => {
+    worldPresenterRef.current.setInterpolationDelay(snapshotInterpolationDelayMs);
+  }, [snapshotInterpolationDelayMs]);
+
+  useEffect(() => {
+    worldPresenterRef.current.setSnapshot(snapshot);
+  }, [snapshot]);
 
   const createRoom = useCallback(() => {
     persistCallsign(callsign);
@@ -132,10 +144,7 @@ export function App() {
         canvasRef={canvasRef}
         reticleRef={reticleRef}
         sceneRef={sceneRef}
-        localPredictionRef={localPredictionRef}
-        snapshot={snapshot}
-        serverClockOffsetMs={networkStats.serverClockSamples > 0 ? networkStats.serverClockOffsetMs : undefined}
-        snapshotInterpolationDelayMs={snapshotInterpolationDelayMs}
+        worldPresenterRef={worldPresenterRef}
         playerId={playerId}
         debugEnabled={debugVisible}
         onDebugStats={updateDebugStats}

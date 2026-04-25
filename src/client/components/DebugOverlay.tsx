@@ -1,5 +1,5 @@
 import type { ClientDebugStats } from "./GameCanvas.js";
-import type { NetworkStats } from "../hooks/useGameSocket.js";
+import type { NetworkStats } from "../net/NetworkTelemetry.js";
 
 type DebugOverlayProps = {
   visible: boolean;
