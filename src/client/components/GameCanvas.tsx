@@ -8,12 +8,24 @@ export type ClientDebugStats = SceneDebugStats & {
   fps: number;
   frameMs: number;
   worstFrameMs: number;
+  frameSpikeCount: number;
+  frameSpikeMs: number;
+  frameSpikeAgeMs: number;
+  frameSpikeIntervalMs: number;
   snapshotBufferMs: number;
   snapshotDelayMs: number;
   pendingInputs: number;
   predictedMs: number;
   predictionLeadMeters: number;
   correctionMeters: number;
+  correctionLastMeters: number;
+  correctionAgeMs: number;
+  correctionIntervalMs: number;
+  correctionEvents: number;
+  ackSeq: number;
+  ackDelta: number;
+  ackAgeMs: number;
+  ackIntervalMs: number;
 };
 
 type GameCanvasProps = {
@@ -59,6 +71,10 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef
     let statSampleCount = 0;
     let totalFrameMs = 0;
     let worstFrameMs = 0;
+    let frameSpikeCount = 0;
+    let frameSpikeMs = 0;
+    let frameSpikeAt = 0;
+    let frameSpikeIntervalMs = 0;
     let lastStatsAt = 0;
     sceneRef.current = scene;
 
@@ -68,6 +84,12 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef
       totalFrameMs += frameMs;
       worstFrameMs = Math.max(worstFrameMs, frameMs);
       statSampleCount += 1;
+      if (frameMs >= 24) {
+        frameSpikeCount += 1;
+        frameSpikeIntervalMs = frameSpikeAt > 0 ? now - frameSpikeAt : 0;
+        frameSpikeAt = now;
+        frameSpikeMs = frameMs;
+      }
 
       const sampledRoom = localPredictionRef.current.apply(snapshotBufferRef.current.sample(now, playerIdRef.current), playerIdRef.current, now);
       if (sampledRoom) {
@@ -83,12 +105,24 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef
           fps: averageFrameMs > 0 ? 1000 / averageFrameMs : 0,
           frameMs: averageFrameMs,
           worstFrameMs,
+          frameSpikeCount,
+          frameSpikeMs,
+          frameSpikeAgeMs: frameSpikeAt > 0 ? now - frameSpikeAt : 0,
+          frameSpikeIntervalMs,
           snapshotBufferMs: snapshotBufferRef.current.getBufferedMs(now),
           snapshotDelayMs: SNAPSHOT_INTERPOLATION_DELAY_MS,
           pendingInputs: predictionStats.pendingInputs,
           predictedMs: predictionStats.predictedMs,
           predictionLeadMeters: predictionStats.leadMeters,
-          correctionMeters: predictionStats.correctionMeters
+          correctionMeters: predictionStats.correctionMeters,
+          correctionLastMeters: predictionStats.correctionLastMeters,
+          correctionAgeMs: predictionStats.correctionAgeMs,
+          correctionIntervalMs: predictionStats.correctionIntervalMs,
+          correctionEvents: predictionStats.correctionEvents,
+          ackSeq: predictionStats.ackSeq,
+          ackDelta: predictionStats.ackDelta,
+          ackAgeMs: predictionStats.ackAgeMs,
+          ackIntervalMs: predictionStats.ackIntervalMs
         });
         lastStatsAt = now;
         statSampleCount = 0;

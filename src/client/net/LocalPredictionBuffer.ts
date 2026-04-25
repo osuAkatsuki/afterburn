@@ -15,6 +15,14 @@ export type LocalPredictionStats = {
   predictedMs: number;
   leadMeters: number;
   correctionMeters: number;
+  correctionLastMeters: number;
+  correctionAgeMs: number;
+  correctionIntervalMs: number;
+  correctionEvents: number;
+  ackSeq: number;
+  ackDelta: number;
+  ackAgeMs: number;
+  ackIntervalMs: number;
 };
 
 export class LocalPredictionBuffer {
@@ -24,12 +32,27 @@ export class LocalPredictionBuffer {
   private previousAuthoritativePlayer?: PlayerState;
   private positionCorrection: Vec3 = { x: 0, y: 0, z: 0 };
   private lastCorrectionMeters = 0;
+  private lastCorrectionAt = 0;
+  private correctionIntervalMs = 0;
+  private correctionEvents = 0;
+  private lastAckSeq = 0;
+  private lastAckAt = 0;
+  private ackDelta = 0;
+  private ackIntervalMs = 0;
   private lastRenderTime = 0;
   private stats: LocalPredictionStats = {
     pendingInputs: 0,
     predictedMs: 0,
     leadMeters: 0,
-    correctionMeters: 0
+    correctionMeters: 0,
+    correctionLastMeters: 0,
+    correctionAgeMs: 0,
+    correctionIntervalMs: 0,
+    correctionEvents: 0,
+    ackSeq: 0,
+    ackDelta: 0,
+    ackAgeMs: 0,
+    ackIntervalMs: 0
   };
 
   recordInput(input: InputFrame): void {
@@ -54,8 +77,15 @@ export class LocalPredictionBuffer {
       this.previousAuthoritativePlayer = undefined;
       this.positionCorrection = { x: 0, y: 0, z: 0 };
       this.lastCorrectionMeters = 0;
+      this.lastCorrectionAt = 0;
+      this.correctionIntervalMs = 0;
+      this.correctionEvents = 0;
+      this.lastAckSeq = 0;
+      this.lastAckAt = 0;
+      this.ackDelta = 0;
+      this.ackIntervalMs = 0;
       this.lastRenderTime = renderTime;
-      this.stats = { pendingInputs: 0, predictedMs: 0, leadMeters: 0, correctionMeters: 0 };
+      this.stats = this.emptyStats();
       return room;
     }
 
@@ -72,7 +102,8 @@ export class LocalPredictionBuffer {
 
     const dt = this.consumeRenderDt(renderTime);
     const authorityChanged = this.hasAuthoritativeChange(player);
-    const renderedPlayer = this.predictPlayer(targetPlayer, authorityChanged, dt);
+    this.updateAckStats(player.lastInputSeq, renderTime);
+    const renderedPlayer = this.predictPlayer(targetPlayer, authorityChanged, dt, renderTime);
     this.previousAuthoritativePlayer = clone(player);
     this.renderedPlayer = clone(renderedPlayer);
     room.players[localPlayerId] = renderedPlayer;
@@ -81,7 +112,15 @@ export class LocalPredictionBuffer {
       pendingInputs: pendingInputs.length,
       predictedMs: pendingInputs.length * REPLAY_DT_SECONDS * 1000,
       leadMeters: distance(authoritativePosition, targetPlayer.position),
-      correctionMeters: magnitudeVec3(this.positionCorrection)
+      correctionMeters: magnitudeVec3(this.positionCorrection),
+      correctionLastMeters: this.lastCorrectionMeters,
+      correctionAgeMs: this.lastCorrectionAt > 0 ? renderTime - this.lastCorrectionAt : 0,
+      correctionIntervalMs: this.correctionIntervalMs,
+      correctionEvents: this.correctionEvents,
+      ackSeq: this.lastAckSeq,
+      ackDelta: this.ackDelta,
+      ackAgeMs: this.lastAckAt > 0 ? renderTime - this.lastAckAt : 0,
+      ackIntervalMs: this.ackIntervalMs
     };
     return room;
   }
@@ -93,8 +132,15 @@ export class LocalPredictionBuffer {
     this.previousAuthoritativePlayer = undefined;
     this.positionCorrection = { x: 0, y: 0, z: 0 };
     this.lastCorrectionMeters = 0;
+    this.lastCorrectionAt = 0;
+    this.correctionIntervalMs = 0;
+    this.correctionEvents = 0;
+    this.lastAckSeq = 0;
+    this.lastAckAt = 0;
+    this.ackDelta = 0;
+    this.ackIntervalMs = 0;
     this.lastRenderTime = 0;
-    this.stats = { pendingInputs: 0, predictedMs: 0, leadMeters: 0, correctionMeters: 0 };
+    this.stats = this.emptyStats();
   }
 
   getStats(): LocalPredictionStats {
@@ -107,7 +153,7 @@ export class LocalPredictionBuffer {
     }
   }
 
-  private predictPlayer(targetPlayer: PlayerState, authorityChanged: boolean, dt: number): PlayerState {
+  private predictPlayer(targetPlayer: PlayerState, authorityChanged: boolean, dt: number, renderTime: number): PlayerState {
     if (!this.predictedPlayer || !this.renderedPlayer) {
       this.predictedPlayer = clone(targetPlayer);
       this.positionCorrection = { x: 0, y: 0, z: 0 };
@@ -125,11 +171,12 @@ export class LocalPredictionBuffer {
       if (this.lastCorrectionMeters > SNAP_CORRECTION_METERS) {
         this.predictedPlayer = clone(targetPlayer);
         this.positionCorrection = { x: 0, y: 0, z: 0 };
-        this.lastCorrectionMeters = 0;
+        this.recordCorrection(this.lastCorrectionMeters, renderTime);
         return clone(targetPlayer);
       }
 
       if (this.lastCorrectionMeters > MIN_SMOOTHED_CORRECTION_METERS) {
+        this.recordCorrection(this.lastCorrectionMeters, renderTime);
         this.positionCorrection = correction;
       }
     }
@@ -167,6 +214,41 @@ export class LocalPredictionBuffer {
       distance(player.velocity, this.previousAuthoritativePlayer.velocity) > 0.001 ||
       player.status !== this.previousAuthoritativePlayer.status
     );
+  }
+
+  private updateAckStats(ackSeq: number, renderTime: number): void {
+    if (ackSeq === this.lastAckSeq) {
+      return;
+    }
+
+    this.ackDelta = ackSeq - this.lastAckSeq;
+    this.ackIntervalMs = this.lastAckAt > 0 ? renderTime - this.lastAckAt : 0;
+    this.lastAckSeq = ackSeq;
+    this.lastAckAt = renderTime;
+  }
+
+  private recordCorrection(correctionMeters: number, renderTime: number): void {
+    this.correctionIntervalMs = this.lastCorrectionAt > 0 ? renderTime - this.lastCorrectionAt : 0;
+    this.lastCorrectionAt = renderTime;
+    this.lastCorrectionMeters = correctionMeters;
+    this.correctionEvents += 1;
+  }
+
+  private emptyStats(): LocalPredictionStats {
+    return {
+      pendingInputs: 0,
+      predictedMs: 0,
+      leadMeters: 0,
+      correctionMeters: 0,
+      correctionLastMeters: 0,
+      correctionAgeMs: 0,
+      correctionIntervalMs: 0,
+      correctionEvents: 0,
+      ackSeq: 0,
+      ackDelta: 0,
+      ackAgeMs: 0,
+      ackIntervalMs: 0
+    };
   }
 }
 

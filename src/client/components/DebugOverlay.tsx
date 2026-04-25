@@ -25,7 +25,11 @@ export function DebugOverlay({ visible, stats, networkStats }: DebugOverlayProps
             rows={[
               ["FPS", stats.fps.toFixed(0)],
               ["Frame", `${stats.frameMs.toFixed(1)} ms`],
-              ["Worst", `${stats.worstFrameMs.toFixed(1)} ms`]
+              ["Worst", `${stats.worstFrameMs.toFixed(1)} ms`],
+              ["Spikes", formatCount(stats.frameSpikeCount)],
+              ["Spike", `${stats.frameSpikeMs.toFixed(1)} ms`],
+              ["Spike age", `${stats.frameSpikeAgeMs.toFixed(0)} ms`],
+              ["Spike int", `${stats.frameSpikeIntervalMs.toFixed(0)} ms`]
             ]}
           />
           <DebugSection
@@ -38,10 +42,23 @@ export function DebugOverlay({ visible, stats, networkStats }: DebugOverlayProps
               ["Delay", `${stats.snapshotDelayMs.toFixed(0)} ms`],
               ["Buffered", `${stats.snapshotBufferMs.toFixed(0)} ms`],
               ["Pending inputs", formatCount(stats.pendingInputs)],
+              ["Ack", formatCount(stats.ackSeq)],
+              ["Ack delta", formatCount(stats.ackDelta)],
+              ["Ack age", `${stats.ackAgeMs.toFixed(0)} ms`],
+              ["Ack int", `${stats.ackIntervalMs.toFixed(0)} ms`],
+              ["Reconnects", formatCount(networkStats?.reconnects ?? 0)]
+            ]}
+          />
+          <DebugSection
+            title="Prediction"
+            rows={[
               ["Predicted", `${stats.predictedMs.toFixed(0)} ms`],
               ["Lead", `${stats.predictionLeadMeters.toFixed(1)} m`],
               ["Correction", `${stats.correctionMeters.toFixed(1)} m`],
-              ["Reconnects", formatCount(networkStats?.reconnects ?? 0)]
+              ["Corr last", `${stats.correctionLastMeters.toFixed(1)} m`],
+              ["Corr age", `${stats.correctionAgeMs.toFixed(0)} ms`],
+              ["Corr int", `${stats.correctionIntervalMs.toFixed(0)} ms`],
+              ["Corr events", formatCount(stats.correctionEvents)]
             ]}
           />
           <DebugSection
