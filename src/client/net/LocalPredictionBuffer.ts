@@ -19,6 +19,7 @@ export type LocalPredictionStats = {
 
 export class LocalPredictionBuffer {
   private readonly inputs: InputFrame[] = [];
+  private predictedPlayer?: PlayerState;
   private renderedPlayer?: PlayerState;
   private previousAuthoritativePlayer?: PlayerState;
   private positionCorrection: Vec3 = { x: 0, y: 0, z: 0 };
@@ -48,6 +49,7 @@ export class LocalPredictionBuffer {
   apply(room: RoomState | undefined, localPlayerId: string, renderTime = performance.now()): RoomState | undefined {
     const player = room?.players[localPlayerId];
     if (!room || !player || player.status !== "alive") {
+      this.predictedPlayer = undefined;
       this.renderedPlayer = undefined;
       this.previousAuthoritativePlayer = undefined;
       this.positionCorrection = { x: 0, y: 0, z: 0 };
@@ -86,6 +88,7 @@ export class LocalPredictionBuffer {
 
   clear(): void {
     this.inputs.length = 0;
+    this.predictedPlayer = undefined;
     this.renderedPlayer = undefined;
     this.previousAuthoritativePlayer = undefined;
     this.positionCorrection = { x: 0, y: 0, z: 0 };
@@ -105,20 +108,22 @@ export class LocalPredictionBuffer {
   }
 
   private predictPlayer(targetPlayer: PlayerState, authorityChanged: boolean, dt: number): PlayerState {
-    if (!this.renderedPlayer) {
+    if (!this.predictedPlayer || !this.renderedPlayer) {
+      this.predictedPlayer = clone(targetPlayer);
       this.positionCorrection = { x: 0, y: 0, z: 0 };
       this.lastCorrectionMeters = 0;
       return clone(targetPlayer);
     }
 
-    const predictedPlayer = clone(this.renderedPlayer);
+    const predictedPlayer = authorityChanged ? clone(targetPlayer) : clone(this.predictedPlayer);
     applyPlayerFlightStep(predictedPlayer, this.inputs.at(-1) ?? targetPlayer.input, dt);
 
     if (authorityChanged) {
-      const correction = subtractVec3(targetPlayer.position, predictedPlayer.position);
+      const correction = subtractVec3(this.renderedPlayer.position, predictedPlayer.position);
       this.lastCorrectionMeters = magnitudeVec3(correction);
 
       if (this.lastCorrectionMeters > SNAP_CORRECTION_METERS) {
+        this.predictedPlayer = clone(targetPlayer);
         this.positionCorrection = { x: 0, y: 0, z: 0 };
         this.lastCorrectionMeters = 0;
         return clone(targetPlayer);
@@ -132,10 +137,11 @@ export class LocalPredictionBuffer {
     const alpha = 1 - Math.exp(-dt * CORRECTION_RATE);
     const correctionStep = scaleVec3(this.positionCorrection, alpha);
     this.positionCorrection = subtractVec3(this.positionCorrection, correctionStep);
+    this.predictedPlayer = clone(predictedPlayer);
 
     return {
       ...clone(targetPlayer),
-      position: addVec3(predictedPlayer.position, correctionStep),
+      position: addVec3(predictedPlayer.position, this.positionCorrection),
       velocity: predictedPlayer.velocity,
       rotation: predictedPlayer.rotation,
       orientation: predictedPlayer.orientation,

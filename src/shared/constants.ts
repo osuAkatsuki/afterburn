@@ -85,7 +85,7 @@ export const AOA_LIFT_ACCELERATION = 260;
 export const MAX_LIFT_ACCELERATION = 150;
 export const ENGINE_RESPONSE = 0.95;
 export const AIR_DRAG = 0.08;
-export const VELOCITY_ALIGNMENT = 1.65;
+export const VELOCITY_ALIGNMENT = 4.2;
 
 export const GUN_DAMAGE = 12;
 export const GUN_COOLDOWN_SECONDS = 0.085;

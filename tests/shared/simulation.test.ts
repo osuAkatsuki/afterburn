@@ -164,6 +164,21 @@ describe("shared simulation", () => {
     expect(player.velocity.y).toBeGreaterThan(neutralVerticalSpeed + 8);
   });
 
+  it("quickly realigns velocity with the aircraft nose after a skid", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+    player.position = { x: 0, y: 500, z: 0 };
+    setRotation(player, { pitch: 0, yaw: 0, roll: 0 });
+    player.velocity = { x: MAX_SPEED, y: 0, z: 0 };
+
+    for (let i = 0; i < 12; i += 1) {
+      setPlayerInput(player, { seq: i + 1 });
+      stepRoom(room, 1 / TICK_RATE, 1100 + i * (1000 / TICK_RATE));
+    }
+
+    expect(dot(normalize(player.velocity), forwardVector(player.rotation))).toBeGreaterThan(0.94);
+  });
+
   it("crashes aircraft on ocean impact without awarding score", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
