@@ -6,6 +6,7 @@ import { Server } from "socket.io";
 import { configureClientServing } from "./clientServing.js";
 import { GameRoomManager } from "./gameServer.js";
 import { registerGameSocketHandlers, startGameLoop } from "./socketHandlers.js";
+import type { ClientToServerEvents, ServerToClientEvents } from "../shared/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProduction = process.env.NODE_ENV === "production";
@@ -13,7 +14,7 @@ const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
+const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   serveClient: false
 });
 const manager = new GameRoomManager();

@@ -150,3 +150,27 @@ export type RoundEndedPayload = {
   room: RoomState;
   winnerId?: string;
 };
+
+export type RoomCreatePayload = {
+  name?: string;
+};
+
+export type RoomJoinPayload = {
+  roomId?: string;
+  name?: string;
+};
+
+export type ClientToServerEvents = {
+  "room:create": (payload?: RoomCreatePayload) => void;
+  "room:join": (payload?: RoomJoinPayload) => void;
+  "round:start": () => void;
+  "input:update": (input: Partial<InputFrame>) => void;
+};
+
+export type ServerToClientEvents = {
+  "room:joined": (payload: RoomJoinedPayload) => void;
+  "room:error": (payload: RoomErrorPayload) => void;
+  "state:snapshot": (payload: StateSnapshotPayload) => void;
+  "combat:event": (event: CombatEvent) => void;
+  "round:ended": (payload: RoundEndedPayload) => void;
+};

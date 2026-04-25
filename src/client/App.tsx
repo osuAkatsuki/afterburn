@@ -11,9 +11,9 @@ import { Reticle } from "./components/Reticle.js";
 import { Scoreboard } from "./components/Scoreboard.js";
 import { TacticalWarnings } from "./components/TacticalWarnings.js";
 import { DogfightScene } from "./game/DogfightScene.js";
+import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
-import type { RoomState } from "../shared/types.js";
 
 const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
 
@@ -21,7 +21,6 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
-  const latestRoomRef = useRef<RoomState | undefined>(undefined);
   const autoJoinAttempted = useRef(false);
 
   const {
@@ -48,10 +47,6 @@ export function App() {
   const showLobby = room?.phase !== "playing" && !showEndScreen;
 
   useEffect(() => {
-    latestRoomRef.current = room;
-  }, [room]);
-
-  useEffect(() => {
     if (urlRoom && connectionStatus === "Online" && !autoJoinAttempted.current) {
       autoJoinAttempted.current = true;
       persistCallsign(callsign);
@@ -59,43 +54,7 @@ export function App() {
     }
   }, [callsign, connectionStatus, emitJoinRoom]);
 
-  useEffect(() => {
-    const event = combatNotice?.event;
-    if (!event) {
-      return;
-    }
-
-    if (event.type === "impact") {
-      sceneRef.current?.spawnProjectileImpact(event.position, event.projectileType);
-      return;
-    }
-
-    if (event.type === "crash") {
-      const player = latestRoomRef.current?.players[event.playerId];
-      if (player) {
-        sceneRef.current?.spawnExplosion(player.position, player.color);
-      }
-      return;
-    }
-
-    if (event.type !== "hit" && event.type !== "kill") {
-      return;
-    }
-
-    const victim = latestRoomRef.current?.players[event.victimId];
-    if (!victim) {
-      return;
-    }
-
-    if (event.type === "hit") {
-      sceneRef.current?.spawnHitSpark(victim.position, event.weapon === "missile" ? "#f97316" : "#fef08a");
-      return;
-    }
-
-    if (victim) {
-      sceneRef.current?.spawnExplosion(victim.position, victim.color);
-    }
-  }, [combatNotice]);
+  useCombatEventEffects(sceneRef, room, combatNotice);
 
   useEffect(() => {
     if (roundEndedNotice) {

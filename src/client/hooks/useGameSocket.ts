@@ -2,28 +2,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
   CombatEvent,
+  ClientToServerEvents,
   InputFrame,
   RoomErrorPayload,
   RoomJoinedPayload,
   RoomState,
   RoundEndedPayload,
+  ServerToClientEvents,
   StateSnapshotPayload
 } from "../../shared/types.js";
 
-type ConnectionStatus = "Connecting" | "Online" | "Offline";
+export type ConnectionStatus = "Connecting" | "Online" | "Offline";
 
-type CombatNotice = {
+export type CombatNotice = {
   id: number;
   event: CombatEvent;
 };
 
-type RoundEndedNotice = {
+export type RoundEndedNotice = {
   id: number;
   payload: RoundEndedPayload;
 };
 
 export function useGameSocket() {
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const noticeId = useRef(0);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Connecting");
   const [statusLine, setStatusLine] = useState("");
@@ -33,7 +35,7 @@ export function useGameSocket() {
   const [roundEndedNotice, setRoundEndedNotice] = useState<RoundEndedNotice>();
 
   useEffect(() => {
-    const socket = io();
+    const socket = io() as Socket<ServerToClientEvents, ClientToServerEvents>;
     socketRef.current = socket;
 
     socket.on("connect", () => {

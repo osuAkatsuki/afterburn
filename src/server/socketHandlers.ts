@@ -1,15 +1,26 @@
 import type { Server, Socket } from "socket.io";
 import { TICK_RATE } from "../shared/constants.js";
-import type { InputFrame, RoomErrorPayload, RoomJoinedPayload, RoundEndedPayload, RoomState, StateSnapshotPayload } from "../shared/types.js";
+import type {
+  ClientToServerEvents,
+  RoomErrorPayload,
+  RoomJoinedPayload,
+  RoundEndedPayload,
+  RoomState,
+  ServerToClientEvents,
+  StateSnapshotPayload
+} from "../shared/types.js";
 import { GameRoomManager, normalizeRoomId, type JoinResult } from "./gameServer.js";
 
-export function registerGameSocketHandlers(io: Server, manager: GameRoomManager): void {
+type GameServer = Server<ClientToServerEvents, ServerToClientEvents>;
+type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
+
+export function registerGameSocketHandlers(io: GameServer, manager: GameRoomManager): void {
   io.on("connection", (socket) => {
-    socket.on("room:create", (payload: { name?: string } = {}) => {
+    socket.on("room:create", (payload = {}) => {
       joinSocketRoom(io, manager, socket, () => manager.createRoom(socket.id, payload.name ?? "Pilot"));
     });
 
-    socket.on("room:join", (payload: { roomId?: string; name?: string } = {}) => {
+    socket.on("room:join", (payload = {}) => {
       const roomId = normalizeRoomId(payload.roomId ?? "");
       joinSocketRoom(io, manager, socket, () => manager.joinRoom(roomId, socket.id, payload.name ?? "Pilot"));
     });
@@ -24,7 +35,7 @@ export function registerGameSocketHandlers(io: Server, manager: GameRoomManager)
       emitSnapshot(io, manager, result.room);
     });
 
-    socket.on("input:update", (input: Partial<InputFrame>) => {
+    socket.on("input:update", (input) => {
       manager.setInput(socket.id, input);
     });
 
@@ -35,7 +46,7 @@ export function registerGameSocketHandlers(io: Server, manager: GameRoomManager)
   });
 }
 
-export function startGameLoop(io: Server, manager: GameRoomManager): NodeJS.Timeout {
+export function startGameLoop(io: GameServer, manager: GameRoomManager): NodeJS.Timeout {
   return setInterval(() => {
     manager.tickRooms().forEach(({ room, events, ended }) => {
       events.forEach((event) => {
@@ -52,7 +63,7 @@ export function startGameLoop(io: Server, manager: GameRoomManager): NodeJS.Time
   }, 1000 / TICK_RATE);
 }
 
-function joinSocketRoom(io: Server, manager: GameRoomManager, socket: Socket, join: () => JoinResult): void {
+function joinSocketRoom(io: GameServer, manager: GameRoomManager, socket: GameSocket, join: () => JoinResult): void {
   const previousRoomId = manager.getRoomForPlayer(socket.id)?.id;
   const result = join();
   if (!result.ok) {
@@ -69,17 +80,17 @@ function joinSocketRoom(io: Server, manager: GameRoomManager, socket: Socket, jo
   emitSnapshot(io, manager, result.room);
 }
 
-function emitJoined(socket: Socket, room: RoomState, playerId: string): void {
+function emitJoined(socket: GameSocket, room: RoomState, playerId: string): void {
   const payload: RoomJoinedPayload = { roomId: room.id, playerId, room };
   socket.emit("room:joined", payload);
 }
 
-function emitError(socket: Socket, message: string): void {
+function emitError(socket: GameSocket, message: string): void {
   const payload: RoomErrorPayload = { message };
   socket.emit("room:error", payload);
 }
 
-function emitSnapshot(io: Server, manager: GameRoomManager, room: RoomState): void {
+function emitSnapshot(io: GameServer, manager: GameRoomManager, room: RoomState): void {
   const payload: StateSnapshotPayload = { tick: manager.getTick(), room };
   io.to(room.id).emit("state:snapshot", payload);
 }
