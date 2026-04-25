@@ -1,6 +1,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { StateSnapshotPayload } from "../../shared/types.js";
 import { DogfightScene, type SceneDebugStats } from "../game/DogfightScene.js";
+import type { LocalPredictionBuffer } from "../net/LocalPredictionBuffer.js";
 import { SnapshotBuffer, SNAPSHOT_INTERPOLATION_DELAY_MS } from "../net/SnapshotBuffer.js";
 
 export type ClientDebugStats = SceneDebugStats & {
@@ -9,19 +10,23 @@ export type ClientDebugStats = SceneDebugStats & {
   worstFrameMs: number;
   snapshotBufferMs: number;
   snapshotDelayMs: number;
+  pendingInputs: number;
+  predictedMs: number;
+  predictionLeadMeters: number;
 };
 
 type GameCanvasProps = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   reticleRef: RefObject<HTMLDivElement | null>;
   sceneRef: RefObject<DogfightScene | null>;
+  localPredictionRef: RefObject<LocalPredictionBuffer>;
   snapshot?: StateSnapshotPayload;
   playerId: string;
   debugEnabled: boolean;
   onDebugStats: (stats: ClientDebugStats) => void;
 };
 
-export function GameCanvas({ canvasRef, reticleRef, sceneRef, snapshot, playerId, debugEnabled, onDebugStats }: GameCanvasProps) {
+export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef, snapshot, playerId, debugEnabled, onDebugStats }: GameCanvasProps) {
   const debugEnabledRef = useRef(debugEnabled);
   const onDebugStatsRef = useRef(onDebugStats);
   const playerIdRef = useRef(playerId);
@@ -63,7 +68,7 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, snapshot, playerId
       worstFrameMs = Math.max(worstFrameMs, frameMs);
       statSampleCount += 1;
 
-      const sampledRoom = snapshotBufferRef.current.sample(now, playerIdRef.current);
+      const sampledRoom = localPredictionRef.current.apply(snapshotBufferRef.current.sample(now, playerIdRef.current), playerIdRef.current);
       if (sampledRoom) {
         scene.updateState(sampledRoom, playerIdRef.current);
       }
@@ -71,13 +76,17 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, snapshot, playerId
 
       if (debugEnabledRef.current && now - lastStatsAt >= 250 && statSampleCount > 0) {
         const averageFrameMs = totalFrameMs / statSampleCount;
+        const predictionStats = localPredictionRef.current.getStats();
         onDebugStatsRef.current({
           ...scene.getDebugStats(),
           fps: averageFrameMs > 0 ? 1000 / averageFrameMs : 0,
           frameMs: averageFrameMs,
           worstFrameMs,
           snapshotBufferMs: snapshotBufferRef.current.getBufferedMs(now),
-          snapshotDelayMs: SNAPSHOT_INTERPOLATION_DELAY_MS
+          snapshotDelayMs: SNAPSHOT_INTERPOLATION_DELAY_MS,
+          pendingInputs: predictionStats.pendingInputs,
+          predictedMs: predictionStats.predictedMs,
+          predictionLeadMeters: predictionStats.leadMeters
         });
         lastStatsAt = now;
         statSampleCount = 0;

@@ -99,7 +99,7 @@ export class DogfightScene {
   render(now: number): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.oceanSystem.update(now);
-    this.jetRenderer.update(dt, this.state);
+    this.jetRenderer.update(dt, this.state, this.localPlayerId);
     this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId));
     this.skySystem.update(this.camera);
     this.reticleProjector.update(this.state, this.localPlayerId);

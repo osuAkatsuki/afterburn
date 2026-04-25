@@ -18,7 +18,7 @@ The current damage model is health-based. A more serious game needs location/mod
 
 ### Networking Polish
 
-The server is authoritative, and the client now has a small render-side snapshot interpolation buffer, reconnect rejoin support, reconnect grace on the server, basic RTT/snapshot telemetry, and stricter socket payload handling. Serious PvP still needs full client prediction, reconciliation, lag compensation, packet-loss simulation, bandwidth optimization, and deeper server-side validation.
+The server is authoritative, and the client now has a small render-side snapshot interpolation buffer, local aircraft flight prediction over unacknowledged inputs, reconnect rejoin support, reconnect grace on the server, basic RTT/snapshot telemetry, and stricter socket payload handling. Serious PvP still needs deeper reconciliation, lag-compensated combat validation, packet-loss simulation, bandwidth optimization, and deeper server-side validation.
 
 ### Feedback And Game Feel
 

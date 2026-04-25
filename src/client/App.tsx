@@ -14,6 +14,7 @@ import { DogfightScene } from "./game/DogfightScene.js";
 import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
+import { LocalPredictionBuffer } from "./net/LocalPredictionBuffer.js";
 
 const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
 
@@ -21,6 +22,7 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
+  const localPredictionRef = useRef(new LocalPredictionBuffer());
   const autoJoinAttempted = useRef(false);
 
   const {
@@ -82,8 +84,13 @@ export function App() {
     room,
     playerId,
     sendInput,
+    onLocalInput: (input) => localPredictionRef.current.recordInput(input),
     setScoreboardVisible
   });
+
+  useEffect(() => {
+    localPredictionRef.current.clear();
+  }, [playerId, room?.id]);
 
   const createRoom = useCallback(() => {
     persistCallsign(callsign);
@@ -123,6 +130,7 @@ export function App() {
         canvasRef={canvasRef}
         reticleRef={reticleRef}
         sceneRef={sceneRef}
+        localPredictionRef={localPredictionRef}
         snapshot={snapshot}
         playerId={playerId}
         debugEnabled={debugVisible}

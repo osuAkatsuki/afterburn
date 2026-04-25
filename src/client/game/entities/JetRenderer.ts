@@ -57,9 +57,7 @@ export class JetRenderer {
     });
   }
 
-  update(dt: number, room: RoomState | undefined): void {
-    const alpha = 1 - Math.exp(-dt * 16);
-
+  update(dt: number, room: RoomState | undefined, localPlayerId = ""): void {
     this.jets.forEach((jet, id) => {
       const target = this.jetTargets.get(id);
       if (!target) {
@@ -71,6 +69,7 @@ export class JetRenderer {
         return;
       }
 
+      const alpha = id === localPlayerId ? 1 - Math.exp(-dt * 30) : 1 - Math.exp(-dt * 16);
       jet.position.lerp(target.position, alpha);
       jet.quaternion.slerp(target.quaternion, alpha);
 

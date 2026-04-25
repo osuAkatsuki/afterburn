@@ -37,6 +37,9 @@ export function DebugOverlay({ visible, stats, networkStats }: DebugOverlayProps
               ["Age", networkStats?.lastSnapshotAt ? `${Math.max(0, performance.now() - networkStats.lastSnapshotAt).toFixed(0)} ms` : "--"],
               ["Delay", `${stats.snapshotDelayMs.toFixed(0)} ms`],
               ["Buffered", `${stats.snapshotBufferMs.toFixed(0)} ms`],
+              ["Pending inputs", formatCount(stats.pendingInputs)],
+              ["Predicted", `${stats.predictedMs.toFixed(0)} ms`],
+              ["Lead", `${stats.predictionLeadMeters.toFixed(1)} m`],
               ["Reconnects", formatCount(networkStats?.reconnects ?? 0)]
             ]}
           />

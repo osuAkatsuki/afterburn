@@ -263,6 +263,30 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
   player.flareCooldown = Math.max(0, player.flareCooldown - dt);
   player.gunHeat = Math.max(0, player.gunHeat - GUN_HEAT_DECAY_PER_SECOND * dt);
 
+  const previousPosition = cloneVec3(player.position);
+  applyPlayerFlightStep(player, player.input, dt);
+  if (resolveArenaHazards(room, player, now, events, previousPosition)) {
+    return;
+  }
+
+  updateMissileLock(room, player, dt);
+
+  if (player.input.fireGun && player.gunCooldown <= 0 && player.gunHeat < GUN_HEAT_MAX) {
+    fireGun(room, player, now, events);
+  }
+
+  if (player.input.fireMissile && player.missileCooldown <= 0 && player.missilesRemaining > 0) {
+    fireMissile(room, player, now, events);
+  }
+
+  if (player.input.fireFlare && player.flareCooldown <= 0 && player.flaresRemaining > 0) {
+    fireFlare(room, player, now, events);
+  }
+}
+
+export function applyPlayerFlightStep(player: PlayerState, input: InputFrame, dt: number): void {
+  player.input = input;
+
   const localPitchDelta = player.input.pitch * TURN_RATE * dt;
   let orientation = player.orientation ?? quaternionFromRotation(player.rotation);
   const localYawDelta = player.input.yaw * 0.45 * TURN_RATE * dt;
@@ -287,26 +311,8 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
   player.rotation = rotationFromQuaternion(orientation);
 
   const forward = playerForward(player);
-  const previousPosition = cloneVec3(player.position);
   player.velocity = stepFlightVelocity(player, forward, dt);
   player.position = add(player.position, scale(player.velocity, dt));
-  if (resolveArenaHazards(room, player, now, events, previousPosition)) {
-    return;
-  }
-
-  updateMissileLock(room, player, dt);
-
-  if (player.input.fireGun && player.gunCooldown <= 0 && player.gunHeat < GUN_HEAT_MAX) {
-    fireGun(room, player, now, events);
-  }
-
-  if (player.input.fireMissile && player.missileCooldown <= 0 && player.missilesRemaining > 0) {
-    fireMissile(room, player, now, events);
-  }
-
-  if (player.input.fireFlare && player.flareCooldown <= 0 && player.flaresRemaining > 0) {
-    fireFlare(room, player, now, events);
-  }
 }
 
 function stepFlightVelocity(player: PlayerState, forward: Vec3, dt: number): Vec3 {

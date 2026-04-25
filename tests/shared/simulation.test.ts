@@ -20,11 +20,13 @@ import {
   PLAYER_HIT_RADIUS,
   RESPAWN_MS,
   SPEED_UNIT,
+  TICK_RATE,
   TERRAIN_COLLISION_MARGIN,
   TERRAIN_ISLANDS
 } from "../../src/shared/constants.js";
 import {
   addPlayerToRoom,
+  applyPlayerFlightStep,
   createPlayer,
   createRoomState,
   setPlayerInput,
@@ -113,6 +115,34 @@ describe("shared simulation", () => {
     }
 
     expect(length(player.velocity)).toBeGreaterThan(MAX_SPEED * 1.05);
+  });
+
+  it("uses the exported flight step for server aircraft movement", () => {
+    const room = twoPlayerRoom();
+    const serverPlayer = room.players.p1;
+    const predictedPlayer = structuredClone(serverPlayer);
+    const input = {
+      seq: 1,
+      thrust: 0,
+      pitch: 0.8,
+      yaw: 0,
+      roll: 1,
+      fireGun: false,
+      fireMissile: false,
+      fireFlare: false,
+      afterburner: true,
+      timestamp: 1000
+    };
+
+    setPlayerInput(serverPlayer, input);
+    stepRoom(room, 1 / TICK_RATE, 1100);
+    applyPlayerFlightStep(predictedPlayer, input, 1 / TICK_RATE);
+
+    expect(predictedPlayer.position.x).toBeCloseTo(serverPlayer.position.x);
+    expect(predictedPlayer.position.y).toBeCloseTo(serverPlayer.position.y);
+    expect(predictedPlayer.position.z).toBeCloseTo(serverPlayer.position.z);
+    expect(predictedPlayer.rotation.roll).toBeCloseTo(serverPlayer.rotation.roll);
+    expect(predictedPlayer.velocity.z).toBeCloseTo(serverPlayer.velocity.z);
   });
 
   it("makes inverted neutral flight sink but lets pitch generate recovery lift", () => {
