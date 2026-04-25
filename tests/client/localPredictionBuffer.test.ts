@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE } from "../../src/shared/constants.js";
 import { addPlayerToRoom, createPlayer, createRoomState, startRound } from "../../src/shared/simulation.js";
-import type { InputFrame } from "../../src/shared/types.js";
+import type { InputFrame, RoomState } from "../../src/shared/types.js";
 import { LocalPredictionBuffer } from "../../src/client/net/LocalPredictionBuffer.js";
 
 function input(seq: number, values: Partial<InputFrame> = {}): InputFrame {
@@ -21,10 +21,15 @@ function input(seq: number, values: Partial<InputFrame> = {}): InputFrame {
 }
 
 describe("LocalPredictionBuffer", () => {
-  it("replays unacknowledged local inputs on top of authoritative state", () => {
-    const room = createRoomState("PRED1", "p1", 1000);
+  function predictionRoom(id: string): RoomState {
+    const room = createRoomState(id, "p1", 1000);
     addPlayerToRoom(room, createPlayer("p1", "Local", 0, 1000));
     startRound(room, 1000);
+    return room;
+  }
+
+  it("replays unacknowledged local inputs on top of authoritative state", () => {
+    const room = predictionRoom("PRED1");
     room.players.p1.lastInputSeq = 1;
 
     const buffer = new LocalPredictionBuffer();
@@ -43,9 +48,7 @@ describe("LocalPredictionBuffer", () => {
   });
 
   it("drops acknowledged inputs after reconciliation", () => {
-    const room = createRoomState("PRED2", "p1", 1000);
-    addPlayerToRoom(room, createPlayer("p1", "Local", 0, 1000));
-    startRound(room, 1000);
+    const room = predictionRoom("PRED2");
 
     const buffer = new LocalPredictionBuffer();
     buffer.recordInput(input(1, { pitch: 1 }));
@@ -56,5 +59,20 @@ describe("LocalPredictionBuffer", () => {
 
     expect(buffer.getStats().pendingInputs).toBe(0);
     expect(buffer.getStats().leadMeters).toBe(0);
+  });
+
+  it("smooths small authoritative corrections instead of snapping the local render target", () => {
+    const buffer = new LocalPredictionBuffer();
+    const first = predictionRoom("PRED3");
+    first.players.p1.position = { x: 0, y: 200, z: 0 };
+    buffer.apply(first, "p1", 1000);
+
+    const corrected = predictionRoom("PRED3");
+    corrected.players.p1.position = { x: 30, y: 200, z: 0 };
+    const sampled = buffer.apply(corrected, "p1", 1016);
+
+    expect(buffer.getStats().correctionMeters).toBeCloseTo(30);
+    expect(sampled?.players.p1.position.x).toBeGreaterThan(0);
+    expect(sampled?.players.p1.position.x).toBeLessThan(30);
   });
 });

@@ -13,6 +13,7 @@ export type ClientDebugStats = SceneDebugStats & {
   pendingInputs: number;
   predictedMs: number;
   predictionLeadMeters: number;
+  correctionMeters: number;
 };
 
 type GameCanvasProps = {
@@ -68,7 +69,7 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef
       worstFrameMs = Math.max(worstFrameMs, frameMs);
       statSampleCount += 1;
 
-      const sampledRoom = localPredictionRef.current.apply(snapshotBufferRef.current.sample(now, playerIdRef.current), playerIdRef.current);
+      const sampledRoom = localPredictionRef.current.apply(snapshotBufferRef.current.sample(now, playerIdRef.current), playerIdRef.current, now);
       if (sampledRoom) {
         scene.updateState(sampledRoom, playerIdRef.current);
       }
@@ -86,7 +87,8 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef
           snapshotDelayMs: SNAPSHOT_INTERPOLATION_DELAY_MS,
           pendingInputs: predictionStats.pendingInputs,
           predictedMs: predictionStats.predictedMs,
-          predictionLeadMeters: predictionStats.leadMeters
+          predictionLeadMeters: predictionStats.leadMeters,
+          correctionMeters: predictionStats.correctionMeters
         });
         lastStatsAt = now;
         statSampleCount = 0;

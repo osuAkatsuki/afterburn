@@ -40,6 +40,7 @@ export function DebugOverlay({ visible, stats, networkStats }: DebugOverlayProps
               ["Pending inputs", formatCount(stats.pendingInputs)],
               ["Predicted", `${stats.predictedMs.toFixed(0)} ms`],
               ["Lead", `${stats.predictionLeadMeters.toFixed(1)} m`],
+              ["Correction", `${stats.correctionMeters.toFixed(1)} m`],
               ["Reconnects", formatCount(networkStats?.reconnects ?? 0)]
             ]}
           />
