@@ -77,6 +77,25 @@ describe("LocalPredictionBuffer", () => {
     expect(sampled?.players.p1.position.x).toBeLessThan(30);
   });
 
+  it("does not count residual visual smoothing as a new correction", () => {
+    const buffer = new LocalPredictionBuffer();
+    const first = predictionRoom("PRED3B");
+    first.players.p1.position = { x: 0, y: 200, z: 0 };
+    buffer.apply(first, "p1", 1000);
+
+    const corrected = predictionRoom("PRED3B");
+    corrected.players.p1.position = { x: 30, y: 200, z: 0 };
+    buffer.apply(corrected, "p1", 1000);
+
+    const correctionEvents = buffer.getStats().correctionEvents;
+    const ackOnly = predictionRoom("PRED3B");
+    ackOnly.players.p1.position = { x: 30, y: 200, z: 0 };
+    ackOnly.players.p1.lastInputSeq = 1;
+    buffer.apply(ackOnly, "p1", 1000);
+
+    expect(buffer.getStats().correctionEvents).toBe(correctionEvents);
+  });
+
   it("does not smooth locally predicted input movement", () => {
     const buffer = new LocalPredictionBuffer();
     const first = predictionRoom("PRED4");

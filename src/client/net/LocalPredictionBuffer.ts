@@ -161,23 +161,28 @@ export class LocalPredictionBuffer {
       return clone(targetPlayer);
     }
 
-    const predictedPlayer = authorityChanged ? clone(targetPlayer) : clone(this.predictedPlayer);
+    const previousPredictedPlayer = clone(this.predictedPlayer);
+    const predictedPlayer = authorityChanged ? clone(targetPlayer) : clone(previousPredictedPlayer);
     applyPlayerFlightStep(predictedPlayer, this.inputs.at(-1) ?? targetPlayer.input, dt);
 
     if (authorityChanged) {
-      const correction = subtractVec3(this.renderedPlayer.position, predictedPlayer.position);
-      this.lastCorrectionMeters = magnitudeVec3(correction);
+      const correction = subtractVec3(previousPredictedPlayer.position, predictedPlayer.position);
+      const correctionMeters = magnitudeVec3(correction);
+      this.lastCorrectionMeters = correctionMeters;
 
-      if (this.lastCorrectionMeters > SNAP_CORRECTION_METERS) {
+      if (correctionMeters > SNAP_CORRECTION_METERS) {
         this.predictedPlayer = clone(targetPlayer);
         this.positionCorrection = { x: 0, y: 0, z: 0 };
-        this.recordCorrection(this.lastCorrectionMeters, renderTime);
+        this.recordCorrection(correctionMeters, renderTime);
         return clone(targetPlayer);
       }
 
-      if (this.lastCorrectionMeters > MIN_SMOOTHED_CORRECTION_METERS) {
-        this.recordCorrection(this.lastCorrectionMeters, renderTime);
-        this.positionCorrection = correction;
+      if (correctionMeters > 0.001) {
+        this.positionCorrection = addVec3(this.positionCorrection, correction);
+      }
+
+      if (correctionMeters > MIN_SMOOTHED_CORRECTION_METERS) {
+        this.recordCorrection(correctionMeters, renderTime);
       }
     }
 
