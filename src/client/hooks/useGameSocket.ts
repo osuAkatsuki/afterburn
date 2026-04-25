@@ -38,7 +38,7 @@ type LastJoin = {
   name: string;
 };
 
-const CLIENT_ID_KEY = "afterburn.clientId";
+const CLIENT_ID_KEY = "afterburn.sessionClientId";
 const PING_INTERVAL_MS = 2000;
 
 export function useGameSocket() {
@@ -90,6 +90,8 @@ export function useGameSocket() {
       setRoom(payload.room);
       setSnapshot({ tick: 0, sentAt: Date.now(), room: payload.room });
       setPlayerId(payload.playerId);
+      persistClientId(payload.playerId);
+      clientId.current = payload.playerId;
       lastJoin.current = { roomId: payload.roomId, name: pendingName.current };
       setStatusLine("");
       history.replaceState(null, "", `?room=${payload.roomId}`);
@@ -195,12 +197,16 @@ function updateSnapshotStats(
 }
 
 function getClientId(): string {
-  const existing = window.localStorage.getItem(CLIENT_ID_KEY);
+  const existing = window.sessionStorage.getItem(CLIENT_ID_KEY);
   if (existing) {
     return existing;
   }
 
   const generated = window.crypto?.randomUUID?.() ?? `client-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
-  window.localStorage.setItem(CLIENT_ID_KEY, generated);
+  persistClientId(generated);
   return generated;
+}
+
+function persistClientId(clientId: string): void {
+  window.sessionStorage.setItem(CLIENT_ID_KEY, clientId);
 }

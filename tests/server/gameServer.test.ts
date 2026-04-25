@@ -57,6 +57,42 @@ describe("GameRoomManager", () => {
     expect(joined.room.players.guest.health).toBe(100);
   });
 
+  it("keeps callsigns unique within a room", () => {
+    const manager = new GameRoomManager(ids("NAMES"));
+    const created = manager.createRoom("host", "cmyui", 1000, "host-client");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const duplicate = manager.joinRoom("NAMES", "guest-a", "CMYUI", 1000, "guest-client-a");
+    const secondDuplicate = manager.joinRoom("NAMES", "guest-b", "cmyui", 1000, "guest-client-b");
+    expect(duplicate.ok).toBe(true);
+    expect(secondDuplicate.ok).toBe(true);
+    if (!duplicate.ok || !secondDuplicate.ok) return;
+
+    expect(created.room.players["host-client"].name).toBe("cmyui");
+    expect(duplicate.room.players["guest-client-a"].name).toBe("CMYUI 2");
+    expect(secondDuplicate.room.players["guest-client-b"].name).toBe("cmyui 3");
+
+    const names = Object.values(secondDuplicate.room.players).map((player) => player.name.toLocaleLowerCase());
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("does not let an active duplicate client id take over another tab", () => {
+    const manager = new GameRoomManager(ids("TABS1"));
+    const created = manager.createRoom("socket-a", "Pilot", 1000, "same-client");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const joined = manager.joinRoom("TABS1", "socket-b", "Pilot", 1000, "same-client");
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) return;
+
+    expect(joined.playerId).not.toBe("same-client");
+    expect(Object.keys(joined.room.players)).toHaveLength(2);
+    expect(joined.room.players["same-client"]).toBeDefined();
+    expect(joined.room.players[joined.playerId]).toBeDefined();
+  });
+
   it("transfers host on disconnect and removes empty rooms", () => {
     const manager = new GameRoomManager(ids("HOSTS"));
     manager.createRoom("host", "Host");

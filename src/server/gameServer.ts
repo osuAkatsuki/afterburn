@@ -1,6 +1,7 @@
 import { DISCONNECT_GRACE_MS, MAX_PLAYERS, TICK_RATE } from "../shared/constants.js";
 import {
   addPlayerToRoom,
+  cleanName,
   createPlayer,
   createRoomState,
   neutralInput,
@@ -32,15 +33,17 @@ export class GameRoomManager {
   constructor(private readonly makeRoomId = defaultRoomId) {}
 
   createRoom(socketId: string, name: string, now = Date.now(), clientId: unknown = socketId): JoinResult {
-    const playerId = normalizeClientId(clientId, socketId);
+    let playerId = normalizeClientId(clientId, socketId);
 
-    if (this.playerRooms.has(playerId)) {
+    if (this.isActivePlayerOnAnotherSocket(playerId, socketId)) {
+      playerId = this.uniquePlayerId(playerId, socketId);
+    } else if (this.playerRooms.has(playerId)) {
       this.removePlayer(playerId);
     }
 
     const roomId = this.uniqueRoomId();
     const room = createRoomState(roomId, playerId, now);
-    const player = createPlayer(playerId, name, 0, now);
+    const player = createPlayer(playerId, uniquePlayerName(room, name, playerId), 0, now);
     addPlayerToRoom(room, player);
     this.rooms.set(roomId, room);
     this.attachSocket(socketId, playerId, roomId);
@@ -51,7 +54,7 @@ export class GameRoomManager {
   joinRoom(roomId: string, socketId: string, name: string, now = Date.now(), clientId: unknown = socketId): JoinResult {
     const normalized = normalizeRoomId(roomId);
     const room = this.rooms.get(normalized);
-    const playerId = normalizeClientId(clientId, socketId);
+    let playerId = normalizeClientId(clientId, socketId);
 
     if (!room) {
       return { ok: false, message: "Room not found." };
@@ -59,10 +62,14 @@ export class GameRoomManager {
 
     const existingPlayer = room.players[playerId];
     if (existingPlayer) {
-      existingPlayer.name = createPlayer(playerId, name, 0, now).name;
-      this.attachSocket(socketId, playerId, normalized);
-      room.now = now;
-      return { ok: true, room, playerId };
+      if (!this.isActivePlayerOnAnotherSocket(playerId, socketId)) {
+        existingPlayer.name = uniquePlayerName(room, name, playerId);
+        this.attachSocket(socketId, playerId, normalized);
+        room.now = now;
+        return { ok: true, room, playerId };
+      }
+
+      playerId = this.uniquePlayerId(playerId, socketId, room);
     }
 
     if (Object.keys(room.players).length >= MAX_PLAYERS) {
@@ -73,7 +80,7 @@ export class GameRoomManager {
       this.removePlayer(playerId);
     }
 
-    const player = createPlayer(playerId, name, Object.keys(room.players).length, now);
+    const player = createPlayer(playerId, uniquePlayerName(room, name, playerId), Object.keys(room.players).length, now);
     addPlayerToRoom(room, player);
     if (room.phase === "playing") {
       resetPlayerForRound(player, Object.keys(room.players).length - 1, now);
@@ -239,6 +246,26 @@ export class GameRoomManager {
     return this.socketPlayers.get(socketOrPlayerId) ?? socketOrPlayerId;
   }
 
+  private isActivePlayerOnAnotherSocket(playerId: string, socketId: string): boolean {
+    const activeSocketId = this.playerSockets.get(playerId);
+    return Boolean(activeSocketId && activeSocketId !== socketId);
+  }
+
+  private uniquePlayerId(preferredPlayerId: string, socketId: string, room?: RoomState): string {
+    const socketSuffix = normalizeClientId(socketId, socketId).slice(0, 10);
+    const base = `${preferredPlayerId.slice(0, Math.max(1, 52 - socketSuffix.length))}-${socketSuffix}`;
+    let candidate = base;
+    let index = 2;
+
+    while (this.playerRooms.has(candidate) || room?.players[candidate]) {
+      const suffix = `-${index}`;
+      candidate = `${base.slice(0, 64 - suffix.length)}${suffix}`;
+      index += 1;
+    }
+
+    return candidate;
+  }
+
   private removeExpiredDisconnectedPlayers(room: RoomState, now: number): boolean {
     let changed = false;
     Object.keys(room.players).forEach((playerId) => {
@@ -262,6 +289,29 @@ export function normalizeClientId(clientId: unknown, fallback: string): string {
   const raw = typeof clientId === "string" ? clientId : "";
   const normalized = raw.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
   return normalized.length > 0 ? normalized : fallback;
+}
+
+export function uniquePlayerName(room: RoomState, requestedName: string, playerId: string): string {
+  const base = cleanName(requestedName);
+  const taken = new Set(
+    Object.values(room.players)
+      .filter((player) => player.id !== playerId)
+      .map((player) => player.name.toLocaleLowerCase())
+  );
+
+  if (!taken.has(base.toLocaleLowerCase())) {
+    return base;
+  }
+
+  for (let index = 2; index < 100; index += 1) {
+    const suffix = ` ${index}`;
+    const candidate = `${base.slice(0, Math.max(1, 18 - suffix.length))}${suffix}`;
+    if (!taken.has(candidate.toLocaleLowerCase())) {
+      return candidate;
+    }
+  }
+
+  return `${base.slice(0, 14)} ${Math.floor(Math.random() * 900 + 100)}`;
 }
 
 function defaultRoomId(): string {
