@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AFTERBURNER_SPEED,
+  ARENA_RADIUS,
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
   BULLET_TTL_SECONDS,
@@ -12,11 +13,13 @@ import {
   MISSILE_LOCK_DOT,
   MISSILE_LOCK_SECONDS,
   MISSILE_SPEED,
-  MIN_ALTITUDE,
+  OUT_OF_BOUNDS_GRACE_MS,
   PLAYER_HEALTH,
   PLAYER_HIT_RADIUS,
   RESPAWN_MS,
-  SPEED_UNIT
+  SPEED_UNIT,
+  TERRAIN_COLLISION_MARGIN,
+  TERRAIN_ISLANDS
 } from "../../src/shared/constants.js";
 import {
   addPlayerToRoom,
@@ -27,6 +30,7 @@ import {
   stepRoom
 } from "../../src/shared/simulation.js";
 import { dot, normalize, quaternionFromRotation } from "../../src/shared/math.js";
+import { isTerrainImpact, terrainHeightAt } from "../../src/shared/terrain.js";
 import type { PlayerState, Rotation } from "../../src/shared/types.js";
 
 function twoPlayerRoom(now = 1000) {
@@ -61,7 +65,7 @@ describe("shared simulation", () => {
     expect(MISSILE_SPEED).toBe(SPEED_UNIT * 4);
   });
 
-  it("moves aircraft with sanitized input and keeps them inside altitude bounds", () => {
+  it("moves aircraft with sanitized input and warns outside the soft ceiling", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
     player.position.y = MAX_ALTITUDE + 500;
@@ -80,11 +84,92 @@ describe("shared simulation", () => {
     expect(player.input.pitch).toBe(1);
     expect(player.input.yaw).toBe(-1);
     expect(player.input.roll).toBe(1);
-    expect(player.position.y).toBeLessThanOrEqual(MAX_ALTITUDE);
+    expect(player.position.y).toBeGreaterThan(MAX_ALTITUDE);
+    expect(player.status).toBe("alive");
+    expect(player.outOfBoundsRemainingMs).toBeGreaterThan(0);
+  });
 
-    player.position.y = MIN_ALTITUDE - 100;
-    stepRoom(room, 1 / 30, 1066);
-    expect(player.position.y).toBeGreaterThanOrEqual(MIN_ALTITUDE);
+  it("crashes aircraft on ocean impact without awarding score", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+    const other = room.players.p2;
+
+    player.position = { x: ARENA_RADIUS * 0.75, y: TERRAIN_COLLISION_MARGIN - 1, z: 0 };
+    const events = stepRoom(room, 0, 1050);
+
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: player.id, reason: "terrain" });
+    expect(player.status).toBe("dead");
+    expect(player.health).toBe(0);
+    expect(player.deaths).toBe(1);
+    expect(other.score).toBe(0);
+  });
+
+  it("does not crash aircraft while they still have visible terrain clearance", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+
+    player.position = { x: ARENA_RADIUS * 0.75, y: TERRAIN_COLLISION_MARGIN + 3, z: 0 };
+    stepRoom(room, 0, 1050);
+
+    expect(player.status).toBe("alive");
+  });
+
+  it("detects terrain impact across a fast descent segment", () => {
+    expect(
+      isTerrainImpact(
+        { x: ARENA_RADIUS * 0.75, y: -4, z: 0 },
+        { x: ARENA_RADIUS * 0.75, y: 18, z: 0 }
+      )
+    ).toBe(true);
+  });
+
+  it("crashes aircraft on mountain impact", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+    const island = TERRAIN_ISLANDS[0];
+    const peak = island.peaks[0];
+    const x = island.x + peak.x;
+    const z = island.z + peak.z;
+    const terrain = terrainHeightAt(x, z);
+
+    expect(terrain.kind).toBe("mountain");
+    player.position = { x, y: terrain.height + TERRAIN_COLLISION_MARGIN - 0.1, z };
+    const events = stepRoom(room, 0, 1050);
+
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: player.id, reason: "terrain" });
+    expect(player.status).toBe("dead");
+  });
+
+  it("starts and clears the soft play-area warning", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+
+    player.position = { x: ARENA_RADIUS + 25, y: 190, z: 0 };
+    stepRoom(room, 0, 1050);
+
+    expect(player.status).toBe("alive");
+    expect(player.outOfBoundsRemainingMs).toBe(OUT_OF_BOUNDS_GRACE_MS);
+
+    player.position = { x: ARENA_RADIUS - 25, y: 190, z: 0 };
+    stepRoom(room, 0, 2050);
+
+    expect(player.outOfBoundsUntil).toBeUndefined();
+    expect(player.outOfBoundsRemainingMs).toBe(0);
+  });
+
+  it("crashes aircraft when the soft play-area timer expires", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+
+    player.position = { x: ARENA_RADIUS + 100, y: 190, z: 0 };
+    stepRoom(room, 0, 1050);
+    expect(player.status).toBe("alive");
+
+    const events = stepRoom(room, 0, 1050 + OUT_OF_BOUNDS_GRACE_MS);
+
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: player.id, reason: "out-of-bounds" });
+    expect(player.status).toBe("dead");
+    expect(player.health).toBe(0);
   });
 
   it("applies bullet hits, awards kills, and respawns players", () => {

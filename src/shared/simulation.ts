@@ -1,6 +1,5 @@
 import {
   AFTERBURNER_SPEED,
-  ARENA_RADIUS,
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
   BULLET_TTL_SECONDS,
@@ -15,9 +14,7 @@ import {
   GUN_HEAT_DECAY_PER_SECOND,
   GUN_HEAT_MAX,
   GUN_HEAT_PER_SHOT,
-  MAX_ALTITUDE,
   MAX_SPEED,
-  MIN_ALTITUDE,
   MIN_SPEED,
   MISSILE_COOLDOWN_SECONDS,
   MISSILE_AMMO_PER_ROUND,
@@ -35,7 +32,8 @@ import {
   RESPAWN_MS,
   ROLL_RATE,
   ROUND_MS,
-  TURN_RATE
+  TURN_RATE,
+  OUT_OF_BOUNDS_GRACE_MS
 } from "./constants.js";
 import {
   add,
@@ -45,8 +43,6 @@ import {
   distance,
   dot,
   forwardVector,
-  horizontalLength,
-  lerpAngle,
   normalize,
   multiplyQuaternions,
   quaternionFromAxisAngle,
@@ -57,6 +53,7 @@ import {
   scale,
   subtract
 } from "./math.js";
+import { isOutsidePlayArea, isTerrainImpact } from "./terrain.js";
 import type { CombatEvent, InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "./types.js";
 
 const palette = ["#ef4444", "#38bdf8", "#facc15", "#a78bfa", "#34d399", "#fb7185"];
@@ -127,6 +124,7 @@ export function createPlayer(id: string, name: string, index = 0, now = Date.now
     flareCooldown: 0,
     missileLockProgress: 0,
     missileLockAcquired: false,
+    outOfBoundsRemainingMs: 0,
     respawnAt: 0,
     lastInputSeq: 0,
     input: neutralInput(now)
@@ -174,6 +172,7 @@ export function resetPlayerForRound(player: PlayerState, index: number, now: num
   player.missileCooldown = 0;
   player.flareCooldown = 0;
   clearMissileLock(player);
+  clearOutOfBoundsWarning(player);
   player.respawnAt = 0;
   player.input = neutralInput(now);
   player.lastInputSeq = 0;
@@ -274,9 +273,13 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
 
   const speed = player.input.afterburner ? AFTERBURNER_SPEED : MAX_SPEED;
   const forward = playerForward(player);
+  const previousPosition = cloneVec3(player.position);
   player.velocity = scale(forward, speed);
   player.position = add(player.position, scale(player.velocity, dt));
-  enforceArenaBounds(player, dt);
+  if (resolveArenaHazards(room, player, now, events, previousPosition)) {
+    return;
+  }
+
   updateMissileLock(room, player, dt);
 
   if (player.input.fireGun && player.gunCooldown <= 0 && player.gunHeat < GUN_HEAT_MAX) {
@@ -292,23 +295,58 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
   }
 }
 
-function enforceArenaBounds(player: PlayerState, dt: number): void {
-  player.position.y = clamp(player.position.y, MIN_ALTITUDE, MAX_ALTITUDE);
-  const horizontal = horizontalLength(player.position);
-
-  if (horizontal > ARENA_RADIUS) {
-    const scaleBack = ARENA_RADIUS / horizontal;
-    player.position.x *= scaleBack;
-    player.position.z *= scaleBack;
-    const centerYaw = Math.atan2(-player.position.x, -player.position.z);
-    const nextYaw = lerpAngle(player.rotation.yaw, centerYaw, dt * 2.6);
-    const yawDelta = nextYaw - player.rotation.yaw;
-    player.orientation = multiplyQuaternions(
-      quaternionFromAxisAngle({ x: 0, y: 1, z: 0 }, yawDelta),
-      player.orientation ?? quaternionFromRotation(player.rotation)
-    );
-    player.rotation = rotationFromQuaternion(player.orientation);
+function resolveArenaHazards(
+  room: RoomState,
+  player: PlayerState,
+  now: number,
+  events: CombatEvent[],
+  previousPosition?: Vec3
+): boolean {
+  if (isTerrainImpact(player.position, previousPosition)) {
+    crashPlayer(room, player, "terrain", now, events);
+    return true;
   }
+
+  if (!isOutsidePlayArea(player.position)) {
+    clearOutOfBoundsWarning(player);
+    return false;
+  }
+
+  player.outOfBoundsUntil ??= now + OUT_OF_BOUNDS_GRACE_MS;
+  player.outOfBoundsRemainingMs = Math.max(0, player.outOfBoundsUntil - now);
+
+  if (player.outOfBoundsRemainingMs <= 0) {
+    crashPlayer(room, player, "out-of-bounds", now, events);
+    return true;
+  }
+
+  return false;
+}
+
+function crashPlayer(
+  room: RoomState,
+  player: PlayerState,
+  reason: "terrain" | "out-of-bounds",
+  now: number,
+  events: CombatEvent[]
+): void {
+  if (player.status !== "alive") {
+    return;
+  }
+
+  player.status = "dead";
+  player.health = 0;
+  player.deaths += 1;
+  player.respawnAt = now + RESPAWN_MS;
+  player.velocity = { x: 0, y: 0, z: 0 };
+  clearMissileLock(player);
+  clearOutOfBoundsWarning(player);
+  events.push({ type: "crash", roomId: room.id, playerId: player.id, reason });
+}
+
+function clearOutOfBoundsWarning(player: PlayerState): void {
+  player.outOfBoundsUntil = undefined;
+  player.outOfBoundsRemainingMs = 0;
 }
 
 function playerForward(player: PlayerState): Vec3 {
@@ -536,6 +574,8 @@ function applyDamage(
   victim.deaths += 1;
   victim.respawnAt = now + RESPAWN_MS;
   victim.velocity = { x: 0, y: 0, z: 0 };
+  clearMissileLock(victim);
+  clearOutOfBoundsWarning(victim);
 
   const attacker = room.players[attackerId];
   if (attacker && attacker.id !== victim.id) {
@@ -559,6 +599,7 @@ function respawnPlayer(room: RoomState, player: PlayerState, index: number, now:
   player.missileCooldown = Math.min(player.missileCooldown, 1);
   player.flareCooldown = 0;
   clearMissileLock(player);
+  clearOutOfBoundsWarning(player);
   player.respawnAt = 0;
   player.input = neutralInput(now);
 }

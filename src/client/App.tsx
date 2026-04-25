@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EndScreen } from "./components/EndScreen.js";
 import { CombatFeedback } from "./components/CombatFeedback.js";
+import { FlightDirector } from "./components/FlightDirector.js";
 import { GameCanvas } from "./components/GameCanvas.js";
 import { Hud } from "./components/Hud.js";
 import { Lobby } from "./components/Lobby.js";
 import { Radar } from "./components/Radar.js";
 import { Reticle } from "./components/Reticle.js";
 import { Scoreboard } from "./components/Scoreboard.js";
+import { TacticalWarnings } from "./components/TacticalWarnings.js";
 import { DogfightScene } from "./game/DogfightScene.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
@@ -56,7 +58,19 @@ export function App() {
 
   useEffect(() => {
     const event = combatNotice?.event;
-    if (!event || (event.type !== "hit" && event.type !== "kill")) {
+    if (!event) {
+      return;
+    }
+
+    if (event.type === "crash") {
+      const player = latestRoomRef.current?.players[event.playerId];
+      if (player) {
+        sceneRef.current?.spawnExplosion(player.position, player.color);
+      }
+      return;
+    }
+
+    if (event.type !== "hit" && event.type !== "kill") {
       return;
     }
 
@@ -120,7 +134,9 @@ export function App() {
     <div className="shell">
       <GameCanvas canvasRef={canvasRef} reticleRef={reticleRef} sceneRef={sceneRef} room={room} playerId={playerId} />
       <Hud room={room} localPlayer={localPlayer} />
+      <FlightDirector room={room} localPlayer={localPlayer} />
       <Reticle ref={reticleRef} />
+      <TacticalWarnings room={room} localPlayer={localPlayer} />
       <CombatFeedback notice={combatNotice} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />
       <Scoreboard room={room} visible={scoreboardVisible} />

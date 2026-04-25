@@ -7,12 +7,24 @@ type HudProps = {
 };
 
 export function Hud({ room, localPlayer }: HudProps) {
+  const incomingMissile = localPlayer
+    ? Object.values(room?.projectiles ?? {}).some((projectile) => projectile.type === "missile" && projectile.targetType === "player" && projectile.targetId === localPlayer.id)
+    : false;
+  const afterburner = localPlayer?.input.afterburner === true;
+  const outOfBoundsSeconds = Math.ceil((localPlayer?.outOfBoundsRemainingMs ?? 0) / 1000);
+  const statusText =
+    outOfBoundsSeconds > 0
+      ? `RETURN TO PLAYFIELD IN ${outOfBoundsSeconds}s`
+      : incomingMissile
+        ? "MISSILE INBOUND"
+        : room?.phase.toUpperCase() ?? "LOBBY";
+
   return (
-    <section className="hud" aria-live="polite">
+    <section className={`hud ${incomingMissile || outOfBoundsSeconds > 0 ? "threat" : ""}`} aria-live="polite">
       <div className="hud-top">
         <div className="status-stack">
           <strong>{room ? `ROOM ${room.id}` : "NO ROOM"}</strong>
-          <span>{room?.phase.toUpperCase() ?? "LOBBY"}</span>
+          <span>{statusText}</span>
         </div>
         <div className="timer">{roundTimeLabel(room)}</div>
       </div>
@@ -25,6 +37,10 @@ export function Hud({ room, localPlayer }: HudProps) {
         <label>
           <span>Heat</span>
           <meter min="0" max="1" value={localPlayer?.gunHeat ?? 0} />
+        </label>
+        <label>
+          <span>A/B</span>
+          <meter min="0" max="1" value={afterburner ? 1 : 0} />
         </label>
         <label>
           <span>MSL {localPlayer?.missilesRemaining ?? 0}</span>

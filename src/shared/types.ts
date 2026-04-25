@@ -57,6 +57,8 @@ export type PlayerState = {
   missileLockTargetId?: string;
   missileLockProgress: number;
   missileLockAcquired: boolean;
+  outOfBoundsUntil?: number;
+  outOfBoundsRemainingMs: number;
   respawnAt: number;
   lastInputSeq: number;
   input: InputFrame;
@@ -100,6 +102,12 @@ export type CombatEvent =
       roomId: string;
       playerId: string;
       weapon: ProjectileType;
+    }
+  | {
+      type: "crash";
+      roomId: string;
+      playerId: string;
+      reason: "terrain" | "out-of-bounds";
     };
 
 export type RoomState = {

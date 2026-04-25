@@ -5,8 +5,67 @@ export const MIN_PLAYERS_TO_START = 2;
 export const RESPAWN_MS = 3000;
 
 export const ARENA_RADIUS = 1800;
-export const MIN_ALTITUDE = 55;
 export const MAX_ALTITUDE = 900;
+export const OUT_OF_BOUNDS_GRACE_MS = 10000;
+export const OCEAN_LEVEL = 0;
+export const TERRAIN_COLLISION_MARGIN = 2;
+
+export type TerrainPeak = {
+  x: number;
+  z: number;
+  radius: number;
+  height: number;
+};
+
+export type TerrainIsland = {
+  x: number;
+  z: number;
+  beachRadius: number;
+  beachScaleX: number;
+  beachScaleZ: number;
+  peaks: TerrainPeak[];
+};
+
+export const TERRAIN_ISLANDS: TerrainIsland[] = [
+  {
+    x: 0,
+    z: 0,
+    beachRadius: 392,
+    beachScaleX: 1.35,
+    beachScaleZ: 0.82,
+    peaks: [
+      { x: -140, z: -56, radius: 170, height: 158 },
+      { x: 68, z: 24, radius: 156, height: 132 },
+      { x: 185, z: -44, radius: 126, height: 108 },
+      { x: -28, z: 124, radius: 132, height: 94 },
+      { x: -248, z: 34, radius: 104, height: 76 }
+    ]
+  },
+  {
+    x: Math.sin(2.15) * 980,
+    z: Math.cos(2.15) * 980,
+    beachRadius: 167,
+    beachScaleX: 1.35,
+    beachScaleZ: 0.82,
+    peaks: [
+      { x: -44, z: -22, radius: 82, height: 74 },
+      { x: 42, z: 18, radius: 72, height: 64 },
+      { x: 4, z: 58, radius: 58, height: 48 }
+    ]
+  },
+  {
+    x: Math.sin(-1.6) * 1250,
+    z: Math.cos(-1.6) * 1250,
+    beachRadius: 130,
+    beachScaleX: 1.35,
+    beachScaleZ: 0.82,
+    peaks: [
+      { x: -36, z: -14, radius: 62, height: 54 },
+      { x: 36, z: 22, radius: 58, height: 48 },
+      { x: 0, z: 54, radius: 48, height: 38 }
+    ]
+  }
+];
 
 export const PLAYER_HEALTH = 100;
 export const PLAYER_HIT_RADIUS = 22;
