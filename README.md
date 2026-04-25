@@ -10,10 +10,11 @@ https://afterburn.akatsuki.gg
 
 - Private browser rooms with shareable room codes.
 - 3D arcade jet flight with keyboard controls.
-- Server-authoritative PvP state simulation.
+- Server-authoritative PvP simulation with local flight prediction and remote snapshot interpolation.
 - Guns, missiles, flares, lock-on behavior, damage, respawns, scoring, and terrain collisions.
+- Automatic reconnect/rejoin support for in-progress rooms.
 - Static frontend deployment through nginx plus a separate realtime Socket.IO server.
-- Debug performance/network overlay via `F3`.
+- Debug performance/network/prediction overlay via `F3`.
 
 ## Controls
 
@@ -48,6 +49,12 @@ http://localhost:3000
 ```
 
 The server uses Vite middleware in development, so the client hot reloads while the Node server handles Socket.IO.
+
+## Networking Model
+
+The server owns room state and simulates the authoritative game loop. Clients send input frames, predict only their local aircraft for responsiveness, and reconcile against server acknowledgements. Remote aircraft and projectiles are rendered through a snapshot interpolation buffer using server send timestamps, clock sync, and adaptive jitter delay.
+
+Combat, scoring, respawns, terrain collisions, and room lifecycle decisions remain server-authoritative.
 
 ## Validation
 
