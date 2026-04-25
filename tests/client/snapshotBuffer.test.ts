@@ -44,4 +44,16 @@ describe("SnapshotBuffer", () => {
     expect(sampled?.players.remote.position.z).toBe(100);
     expect(sampled?.players.local.position.x).toBe(100);
   });
+
+  it("interpolates on server send time instead of jittered receive time when clock offset is known", () => {
+    const buffer = new SnapshotBuffer();
+    buffer.push({ ...snapshot(1, makeRoom(0, 0)), sentAt: 1000 }, 100, 900);
+    buffer.push({ ...snapshot(2, makeRoom(100, 100)), sentAt: 1050 }, 220, 900);
+
+    const sampled = buffer.sample(SNAPSHOT_INTERPOLATION_DELAY_MS + 125, "local");
+
+    expect(sampled?.players.remote.position.z).toBeCloseTo(50);
+    expect(buffer.getBufferedMs(SNAPSHOT_INTERPOLATION_DELAY_MS + 125)).toBeCloseTo(25);
+    expect(buffer.getLatestServerAgeMs(180)).toBeCloseTo(30);
+  });
 });

@@ -36,11 +36,14 @@ export function DebugOverlay({ visible, stats, networkStats }: DebugOverlayProps
             title="Network"
             rows={[
               ["RTT", networkStats?.rttMs ? `${networkStats.rttMs.toFixed(0)} ms` : "--"],
+              ["Clock", networkStats?.serverClockSamples ? `${networkStats.serverClockSamples}x` : "--"],
               ["Snapshots", networkStats?.snapshotHz ? `${networkStats.snapshotHz.toFixed(1)} Hz` : "--"],
               ["Jitter", networkStats?.snapshotJitterMs ? `${networkStats.snapshotJitterMs.toFixed(1)} ms` : "--"],
-              ["Age", networkStats?.lastSnapshotAt ? `${Math.max(0, performance.now() - networkStats.lastSnapshotAt).toFixed(0)} ms` : "--"],
-              ["Delay", `${stats.snapshotDelayMs.toFixed(0)} ms`],
-              ["Buffered", `${stats.snapshotBufferMs.toFixed(0)} ms`],
+              ["Receive age", networkStats?.lastSnapshotAt ? `${Math.max(0, performance.now() - networkStats.lastSnapshotAt).toFixed(0)} ms` : "--"],
+              ["Server age", `${stats.snapshotServerAgeMs.toFixed(0)} ms`],
+              ["Transport", networkStats?.serverClockSamples ? `${networkStats.transportDelayMs.toFixed(0)} ms` : "--"],
+              ["Interp delay", `${stats.snapshotDelayMs.toFixed(0)} ms`],
+              ["Buffer ahead", `${stats.snapshotBufferMs.toFixed(0)} ms`],
               ["Pending inputs", formatCount(stats.pendingInputs)],
               ["Ack", formatCount(stats.ackSeq)],
               ["Ack delta", formatCount(stats.ackDelta)],

@@ -28,7 +28,6 @@ export type LocalPredictionStats = {
 export class LocalPredictionBuffer {
   private readonly inputs: InputFrame[] = [];
   private predictedPlayer?: PlayerState;
-  private renderedPlayer?: PlayerState;
   private previousAuthoritativePlayer?: PlayerState;
   private positionCorrection: Vec3 = { x: 0, y: 0, z: 0 };
   private lastCorrectionMeters = 0;
@@ -73,7 +72,6 @@ export class LocalPredictionBuffer {
     const player = room?.players[localPlayerId];
     if (!room || !player || player.status !== "alive") {
       this.predictedPlayer = undefined;
-      this.renderedPlayer = undefined;
       this.previousAuthoritativePlayer = undefined;
       this.positionCorrection = { x: 0, y: 0, z: 0 };
       this.lastCorrectionMeters = 0;
@@ -105,7 +103,6 @@ export class LocalPredictionBuffer {
     this.updateAckStats(player.lastInputSeq, renderTime);
     const renderedPlayer = this.predictPlayer(targetPlayer, authorityChanged, dt, renderTime);
     this.previousAuthoritativePlayer = clone(player);
-    this.renderedPlayer = clone(renderedPlayer);
     room.players[localPlayerId] = renderedPlayer;
 
     this.stats = {
@@ -128,7 +125,6 @@ export class LocalPredictionBuffer {
   clear(): void {
     this.inputs.length = 0;
     this.predictedPlayer = undefined;
-    this.renderedPlayer = undefined;
     this.previousAuthoritativePlayer = undefined;
     this.positionCorrection = { x: 0, y: 0, z: 0 };
     this.lastCorrectionMeters = 0;
@@ -154,7 +150,7 @@ export class LocalPredictionBuffer {
   }
 
   private predictPlayer(targetPlayer: PlayerState, authorityChanged: boolean, dt: number, renderTime: number): PlayerState {
-    if (!this.predictedPlayer || !this.renderedPlayer) {
+    if (!this.predictedPlayer) {
       this.predictedPlayer = clone(targetPlayer);
       this.positionCorrection = { x: 0, y: 0, z: 0 };
       this.lastCorrectionMeters = 0;

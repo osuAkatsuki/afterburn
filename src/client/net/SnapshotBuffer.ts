@@ -6,20 +6,23 @@ const MAX_BUFFERED_SNAPSHOTS = 24;
 type BufferedSnapshot = {
   tick: number;
   receivedAt: number;
+  sentAt: number;
   room: RoomState;
 };
 
 export class SnapshotBuffer {
   private readonly snapshots: BufferedSnapshot[] = [];
+  private serverClockOffsetMs?: number;
 
-  push(snapshot: StateSnapshotPayload, receivedAt = performance.now()): void {
+  push(snapshot: StateSnapshotPayload, receivedAt = performance.now(), serverClockOffsetMs?: number): void {
+    this.setServerClockOffset(serverClockOffsetMs);
     if (this.snapshots.at(-1)?.tick === snapshot.tick) {
-      this.snapshots[this.snapshots.length - 1] = { tick: snapshot.tick, receivedAt, room: snapshot.room };
+      this.snapshots[this.snapshots.length - 1] = { tick: snapshot.tick, receivedAt, sentAt: snapshot.sentAt, room: snapshot.room };
       return;
     }
 
-    this.snapshots.push({ tick: snapshot.tick, receivedAt, room: snapshot.room });
-    this.snapshots.sort((a, b) => a.receivedAt - b.receivedAt || a.tick - b.tick);
+    this.snapshots.push({ tick: snapshot.tick, receivedAt, sentAt: snapshot.sentAt, room: snapshot.room });
+    this.snapshots.sort((a, b) => a.sentAt - b.sentAt || a.tick - b.tick);
 
     while (this.snapshots.length > MAX_BUFFERED_SNAPSHOTS) {
       this.snapshots.shift();
@@ -28,6 +31,12 @@ export class SnapshotBuffer {
 
   clear(): void {
     this.snapshots.length = 0;
+  }
+
+  setServerClockOffset(serverClockOffsetMs?: number): void {
+    if (serverClockOffsetMs !== undefined && Number.isFinite(serverClockOffsetMs)) {
+      this.serverClockOffsetMs = serverClockOffsetMs;
+    }
   }
 
   sample(renderTime: number, localPlayerId = ""): RoomState | undefined {
@@ -40,7 +49,7 @@ export class SnapshotBuffer {
     }
 
     const targetTime = renderTime - SNAPSHOT_INTERPOLATION_DELAY_MS;
-    const afterIndex = this.snapshots.findIndex((snapshot) => snapshot.receivedAt >= targetTime);
+    const afterIndex = this.snapshots.findIndex((snapshot) => this.timelineAt(snapshot) >= targetTime);
 
     if (afterIndex === -1) {
       return cloneRoom(this.latest.room);
@@ -52,8 +61,10 @@ export class SnapshotBuffer {
 
     const before = this.snapshots[afterIndex - 1];
     const after = this.snapshots[afterIndex];
-    const span = Math.max(1, after.receivedAt - before.receivedAt);
-    const alpha = clamp01((targetTime - before.receivedAt) / span);
+    const beforeTime = this.timelineAt(before);
+    const afterTime = this.timelineAt(after);
+    const span = Math.max(1, afterTime - beforeTime);
+    const alpha = clamp01((targetTime - beforeTime) / span);
     const sampled = interpolateRooms(before.room, after.room, alpha);
 
     const latestLocalPlayer = this.latest.room.players[localPlayerId];
@@ -69,12 +80,32 @@ export class SnapshotBuffer {
       return 0;
     }
 
-    return Math.max(0, renderTime - this.snapshots[0].receivedAt);
+    return Math.max(0, this.timelineAt(this.latest) - (renderTime - SNAPSHOT_INTERPOLATION_DELAY_MS));
+  }
+
+  getLatestServerAgeMs(renderTime: number): number {
+    if (this.snapshots.length === 0) {
+      return 0;
+    }
+
+    return Math.max(0, renderTime - this.timelineAt(this.latest));
   }
 
   private get latest(): BufferedSnapshot {
     return this.snapshots[this.snapshots.length - 1];
   }
+
+  private timelineAt(snapshot: BufferedSnapshot): number {
+    return toClientTimeline(snapshot.sentAt, snapshot.receivedAt, this.serverClockOffsetMs);
+  }
+}
+
+function toClientTimeline(serverSentAt: number, receivedAt: number, serverClockOffsetMs?: number): number {
+  if (Number.isFinite(serverClockOffsetMs) && serverClockOffsetMs !== undefined) {
+    return serverSentAt - serverClockOffsetMs;
+  }
+
+  return receivedAt;
 }
 
 function interpolateRooms(before: RoomState, after: RoomState, alpha: number): RoomState {

@@ -14,6 +14,7 @@ export type ClientDebugStats = SceneDebugStats & {
   frameSpikeIntervalMs: number;
   snapshotBufferMs: number;
   snapshotDelayMs: number;
+  snapshotServerAgeMs: number;
   pendingInputs: number;
   predictedMs: number;
   predictionLeadMeters: number;
@@ -34,12 +35,23 @@ type GameCanvasProps = {
   sceneRef: RefObject<DogfightScene | null>;
   localPredictionRef: RefObject<LocalPredictionBuffer>;
   snapshot?: StateSnapshotPayload;
+  serverClockOffsetMs?: number;
   playerId: string;
   debugEnabled: boolean;
   onDebugStats: (stats: ClientDebugStats) => void;
 };
 
-export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef, snapshot, playerId, debugEnabled, onDebugStats }: GameCanvasProps) {
+export function GameCanvas({
+  canvasRef,
+  reticleRef,
+  sceneRef,
+  localPredictionRef,
+  snapshot,
+  serverClockOffsetMs,
+  playerId,
+  debugEnabled,
+  onDebugStats
+}: GameCanvasProps) {
   const debugEnabledRef = useRef(debugEnabled);
   const onDebugStatsRef = useRef(onDebugStats);
   const playerIdRef = useRef(playerId);
@@ -50,6 +62,10 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef
     onDebugStatsRef.current = onDebugStats;
     playerIdRef.current = playerId;
   }, [debugEnabled, onDebugStats, playerId]);
+
+  useEffect(() => {
+    snapshotBufferRef.current.setServerClockOffset(serverClockOffsetMs);
+  }, [serverClockOffsetMs]);
 
   useEffect(() => {
     if (snapshot) {
@@ -111,6 +127,7 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, localPredictionRef
           frameSpikeIntervalMs,
           snapshotBufferMs: snapshotBufferRef.current.getBufferedMs(now),
           snapshotDelayMs: SNAPSHOT_INTERPOLATION_DELAY_MS,
+          snapshotServerAgeMs: snapshotBufferRef.current.getLatestServerAgeMs(now),
           pendingInputs: predictionStats.pendingInputs,
           predictedMs: predictionStats.predictedMs,
           predictionLeadMeters: predictionStats.leadMeters,

@@ -132,6 +132,7 @@ export function App() {
         sceneRef={sceneRef}
         localPredictionRef={localPredictionRef}
         snapshot={snapshot}
+        serverClockOffsetMs={networkStats.serverClockSamples > 0 ? networkStats.serverClockOffsetMs : undefined}
         playerId={playerId}
         debugEnabled={debugVisible}
         onDebugStats={updateDebugStats}

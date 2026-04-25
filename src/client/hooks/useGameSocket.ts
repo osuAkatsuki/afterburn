@@ -27,9 +27,12 @@ export type RoundEndedNotice = {
 
 export type NetworkStats = {
   rttMs: number;
+  serverClockOffsetMs: number;
+  serverClockSamples: number;
   snapshotHz: number;
   snapshotJitterMs: number;
   lastSnapshotAt: number;
+  transportDelayMs: number;
   reconnects: number;
 };
 
@@ -48,7 +51,10 @@ export function useGameSocket() {
   const lastJoin = useRef<LastJoin | undefined>(undefined);
   const pendingName = useRef("Pilot");
   const previousSnapshotAt = useRef(0);
+  const previousSnapshotSentAt = useRef(0);
   const snapshotIntervalMs = useRef(0);
+  const serverClockOffsetMs = useRef<number | undefined>(undefined);
+  const serverClockSamples = useRef(0);
   const reconnects = useRef(0);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Connecting");
   const [statusLine, setStatusLine] = useState("");
@@ -59,9 +65,12 @@ export function useGameSocket() {
   const [roundEndedNotice, setRoundEndedNotice] = useState<RoundEndedNotice>();
   const [networkStats, setNetworkStats] = useState<NetworkStats>({
     rttMs: 0,
+    serverClockOffsetMs: 0,
+    serverClockSamples: 0,
     snapshotHz: 0,
     snapshotJitterMs: 0,
     lastSnapshotAt: 0,
+    transportDelayMs: 0,
     reconnects: 0
   });
 
@@ -99,11 +108,10 @@ export function useGameSocket() {
     socket.on("state:snapshot", (payload: StateSnapshotPayload) => {
       setRoom(payload.room);
       setSnapshot(payload);
-      updateSnapshotStats(payload, previousSnapshotAt, snapshotIntervalMs, setNetworkStats);
+      updateSnapshotStats(payload, previousSnapshotAt, previousSnapshotSentAt, snapshotIntervalMs, serverClockOffsetMs, setNetworkStats);
     });
     socket.on("net:pong", (payload: NetPongPayload) => {
-      const rttMs = Math.max(0, performance.now() - payload.clientTime);
-      setNetworkStats((stats) => ({ ...stats, rttMs }));
+      updateClockStats(payload, serverClockOffsetMs, serverClockSamples, setNetworkStats);
     });
     socket.on("combat:event", (event: CombatEvent) => {
       noticeId.current += 1;
@@ -169,31 +177,74 @@ export function useGameSocket() {
 }
 
 function updateSnapshotStats(
-  _payload: StateSnapshotPayload,
+  payload: StateSnapshotPayload,
   previousSnapshotAt: MutableRefObject<number>,
+  previousSnapshotSentAt: MutableRefObject<number>,
   snapshotIntervalMs: MutableRefObject<number>,
+  serverClockOffsetMs: MutableRefObject<number | undefined>,
   setNetworkStats: Dispatch<SetStateAction<NetworkStats>>
 ): void {
   const receivedAt = performance.now();
   const previous = previousSnapshotAt.current;
+  const previousSentAt = previousSnapshotSentAt.current;
   previousSnapshotAt.current = receivedAt;
+  previousSnapshotSentAt.current = payload.sentAt;
+  const sentAtLocal = toClientTimeline(payload.sentAt, receivedAt, serverClockOffsetMs.current);
+  const transportDelayMs = Math.max(0, receivedAt - sentAtLocal);
 
   if (previous <= 0) {
-    setNetworkStats((stats) => ({ ...stats, lastSnapshotAt: receivedAt }));
+    setNetworkStats((stats) => ({
+      ...stats,
+      lastSnapshotAt: receivedAt,
+      transportDelayMs
+    }));
     return;
   }
 
-  const interval = receivedAt - previous;
-  const smoothedInterval = snapshotIntervalMs.current > 0 ? snapshotIntervalMs.current * 0.85 + interval * 0.15 : interval;
-  const jitter = Math.abs(interval - smoothedInterval);
+  const receiveInterval = receivedAt - previous;
+  const serverInterval = previousSentAt > 0 ? Math.max(1, payload.sentAt - previousSentAt) : receiveInterval;
+  const smoothedInterval = snapshotIntervalMs.current > 0 ? snapshotIntervalMs.current * 0.85 + serverInterval * 0.15 : serverInterval;
+  const jitter = Math.abs(receiveInterval - serverInterval);
   snapshotIntervalMs.current = smoothedInterval;
 
   setNetworkStats((stats) => ({
     ...stats,
     snapshotHz: smoothedInterval > 0 ? 1000 / smoothedInterval : 0,
     snapshotJitterMs: stats.snapshotJitterMs * 0.85 + jitter * 0.15,
-    lastSnapshotAt: receivedAt
+    lastSnapshotAt: receivedAt,
+    transportDelayMs: stats.transportDelayMs > 0 ? stats.transportDelayMs * 0.85 + transportDelayMs * 0.15 : transportDelayMs
   }));
+}
+
+function updateClockStats(
+  payload: NetPongPayload,
+  serverClockOffsetMs: MutableRefObject<number | undefined>,
+  serverClockSamples: MutableRefObject<number>,
+  setNetworkStats: Dispatch<SetStateAction<NetworkStats>>
+): void {
+  const receivedAt = performance.now();
+  const rttMs = Math.max(0, receivedAt - payload.clientTime);
+  const estimatedServerAtReceive = payload.serverTime + rttMs / 2;
+  const sampledOffset = estimatedServerAtReceive - receivedAt;
+  const currentOffset = serverClockOffsetMs.current;
+  const nextOffset = currentOffset === undefined ? sampledOffset : currentOffset * 0.9 + sampledOffset * 0.1;
+  serverClockOffsetMs.current = nextOffset;
+  serverClockSamples.current += 1;
+
+  setNetworkStats((stats) => ({
+    ...stats,
+    rttMs,
+    serverClockOffsetMs: nextOffset,
+    serverClockSamples: serverClockSamples.current
+  }));
+}
+
+function toClientTimeline(serverTime: number, fallbackClientTime: number, serverClockOffsetMs?: number): number {
+  if (serverClockOffsetMs === undefined || !Number.isFinite(serverClockOffsetMs)) {
+    return fallbackClientTime;
+  }
+
+  return serverTime - serverClockOffsetMs;
 }
 
 function getClientId(): string {
