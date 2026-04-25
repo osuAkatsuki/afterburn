@@ -24,21 +24,31 @@ export function useFlightInput({ room, playerId, sendInput, setScoreboardVisible
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isGameKey(event.code)) {
-        event.preventDefault();
+      if (!isGameKey(event.code)) {
+        return;
       }
 
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
       keys.current.add(event.code);
       if (event.code === "Tab") {
         setScoreboardVisible(true);
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
-      if (isGameKey(event.code)) {
-        event.preventDefault();
+      if (!isGameKey(event.code)) {
+        return;
       }
 
       keys.current.delete(event.code);
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      event.preventDefault();
       if (event.code === "Tab") {
         setScoreboardVisible(false);
       }
@@ -111,4 +121,12 @@ function isGameKey(code: string): boolean {
     code === "ShiftLeft" ||
     code === "ShiftRight"
   );
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return target.isContentEditable || target.matches("input, textarea, select");
 }
