@@ -18,7 +18,7 @@ The current damage model is health-based. A more serious game needs location/mod
 
 ### Networking Polish
 
-The server is authoritative, but serious PvP needs stronger client prediction, reconciliation, interpolation buffers, lag compensation, packet-loss handling, reconnect behavior, bandwidth optimization, and better server-side validation.
+The server is authoritative, and the client now has a small render-side snapshot interpolation buffer, reconnect rejoin support, reconnect grace on the server, basic RTT/snapshot telemetry, and stricter socket payload handling. Serious PvP still needs full client prediction, reconciliation, lag compensation, packet-loss simulation, bandwidth optimization, and deeper server-side validation.
 
 ### Feedback And Game Feel
 

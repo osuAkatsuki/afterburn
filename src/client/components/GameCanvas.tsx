@@ -1,31 +1,45 @@
 import { useEffect, useRef, type RefObject } from "react";
-import type { RoomState } from "../../shared/types.js";
+import type { StateSnapshotPayload } from "../../shared/types.js";
 import { DogfightScene, type SceneDebugStats } from "../game/DogfightScene.js";
+import { SnapshotBuffer, SNAPSHOT_INTERPOLATION_DELAY_MS } from "../net/SnapshotBuffer.js";
 
 export type ClientDebugStats = SceneDebugStats & {
   fps: number;
   frameMs: number;
   worstFrameMs: number;
+  snapshotBufferMs: number;
+  snapshotDelayMs: number;
 };
 
 type GameCanvasProps = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   reticleRef: RefObject<HTMLDivElement | null>;
   sceneRef: RefObject<DogfightScene | null>;
-  room?: RoomState;
+  snapshot?: StateSnapshotPayload;
   playerId: string;
   debugEnabled: boolean;
   onDebugStats: (stats: ClientDebugStats) => void;
 };
 
-export function GameCanvas({ canvasRef, reticleRef, sceneRef, room, playerId, debugEnabled, onDebugStats }: GameCanvasProps) {
+export function GameCanvas({ canvasRef, reticleRef, sceneRef, snapshot, playerId, debugEnabled, onDebugStats }: GameCanvasProps) {
   const debugEnabledRef = useRef(debugEnabled);
   const onDebugStatsRef = useRef(onDebugStats);
+  const playerIdRef = useRef(playerId);
+  const snapshotBufferRef = useRef(new SnapshotBuffer());
 
   useEffect(() => {
     debugEnabledRef.current = debugEnabled;
     onDebugStatsRef.current = onDebugStats;
-  }, [debugEnabled, onDebugStats]);
+    playerIdRef.current = playerId;
+  }, [debugEnabled, onDebugStats, playerId]);
+
+  useEffect(() => {
+    if (snapshot) {
+      snapshotBufferRef.current.push(snapshot);
+    } else {
+      snapshotBufferRef.current.clear();
+    }
+  }, [snapshot]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -49,6 +63,10 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, room, playerId, de
       worstFrameMs = Math.max(worstFrameMs, frameMs);
       statSampleCount += 1;
 
+      const sampledRoom = snapshotBufferRef.current.sample(now, playerIdRef.current);
+      if (sampledRoom) {
+        scene.updateState(sampledRoom, playerIdRef.current);
+      }
       scene.render(now);
 
       if (debugEnabledRef.current && now - lastStatsAt >= 250 && statSampleCount > 0) {
@@ -57,7 +75,9 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, room, playerId, de
           ...scene.getDebugStats(),
           fps: averageFrameMs > 0 ? 1000 / averageFrameMs : 0,
           frameMs: averageFrameMs,
-          worstFrameMs
+          worstFrameMs,
+          snapshotBufferMs: snapshotBufferRef.current.getBufferedMs(now),
+          snapshotDelayMs: SNAPSHOT_INTERPOLATION_DELAY_MS
         });
         lastStatsAt = now;
         statSampleCount = 0;
@@ -75,12 +95,6 @@ export function GameCanvas({ canvasRef, reticleRef, sceneRef, room, playerId, de
       sceneRef.current = null;
     };
   }, [canvasRef, reticleRef, sceneRef]);
-
-  useEffect(() => {
-    if (room) {
-      sceneRef.current?.updateState(room, playerId);
-    }
-  }, [playerId, room, sceneRef]);
 
   return <canvas className="viewport" ref={canvasRef} />;
 }

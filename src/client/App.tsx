@@ -28,11 +28,13 @@ export function App() {
     connectionStatus,
     createRoom: emitCreateRoom,
     joinRoom: emitJoinRoom,
+    networkStats,
     playerId,
     room,
     roundEndedNotice,
     sendInput,
     setLocalStatus,
+    snapshot,
     startRound: emitStartRound,
     statusLine
   } = useGameSocket();
@@ -121,7 +123,7 @@ export function App() {
         canvasRef={canvasRef}
         reticleRef={reticleRef}
         sceneRef={sceneRef}
-        room={room}
+        snapshot={snapshot}
         playerId={playerId}
         debugEnabled={debugVisible}
         onDebugStats={updateDebugStats}
@@ -133,7 +135,7 @@ export function App() {
       <CombatFeedback notice={combatNotice} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />
       <Scoreboard room={room} visible={scoreboardVisible} />
-      <DebugOverlay visible={debugVisible} stats={debugStats} />
+      <DebugOverlay visible={debugVisible} stats={debugStats} networkStats={networkStats} />
       <Lobby
         visible={showLobby}
         connectionStatus={connectionStatus}

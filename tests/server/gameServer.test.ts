@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_PLAYERS } from "../../src/shared/constants.js";
+import { DISCONNECT_GRACE_MS, MAX_PLAYERS } from "../../src/shared/constants.js";
 import { GameRoomManager } from "../../src/server/gameServer.js";
 
 function ids(...values: string[]) {
@@ -68,6 +68,51 @@ describe("GameRoomManager", () => {
 
     manager.removePlayer("guest");
     expect(manager.getRoom("HOSTS")).toBeUndefined();
+  });
+
+  it("keeps disconnected players for a short reconnect grace window", () => {
+    const manager = new GameRoomManager(ids("RECON"));
+    const created = manager.createRoom("socket-a", "Host", 1000, "client-a");
+    expect(created.ok).toBe(true);
+    const started = manager.startRoom("socket-a", 1100);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const player = started.room.players["client-a"];
+    player.score = 2;
+    manager.setInput("socket-a", { seq: 5, roll: 1 });
+
+    const changed = manager.disconnectSocket("socket-a", 1200);
+    expect(changed[0]?.players["client-a"]).toBeDefined();
+    expect(manager.getRoom("RECON")?.players["client-a"].score).toBe(2);
+    expect(manager.getRoom("RECON")?.players["client-a"].input.roll).toBe(0);
+
+    const rejoined = manager.joinRoom("RECON", "socket-b", "Host", 1300, "client-a");
+    expect(rejoined.ok).toBe(true);
+    if (!rejoined.ok) return;
+    expect(rejoined.playerId).toBe("client-a");
+    expect(rejoined.room.players["client-a"].score).toBe(2);
+
+    manager.setInput("socket-b", { seq: 6, roll: -1 });
+    expect(manager.getRoom("RECON")?.players["client-a"].lastInputSeq).toBe(6);
+  });
+
+  it("expires disconnected players after the reconnect grace window", () => {
+    const manager = new GameRoomManager(ids("EXPRY"));
+    manager.createRoom("host-socket", "Host", 1000, "host-client");
+    manager.joinRoom("EXPRY", "guest-socket", "Guest", 1000, "guest-client");
+
+    manager.disconnectSocket("host-socket", 1100);
+    expect(manager.getRoom("EXPRY")?.players["host-client"]).toBeDefined();
+    expect(manager.getRoom("EXPRY")?.hostId).toBe("host-client");
+
+    manager.tickRooms(1100 + DISCONNECT_GRACE_MS - 1);
+    expect(manager.getRoom("EXPRY")?.players["host-client"]).toBeDefined();
+
+    const cleanup = manager.tickRooms(1100 + DISCONNECT_GRACE_MS);
+    expect(manager.getRoom("EXPRY")?.players["host-client"]).toBeUndefined();
+    expect(manager.getRoom("EXPRY")?.hostId).toBe("guest-client");
+    expect(cleanup[0]?.room.id).toBe("EXPRY");
   });
 
   it("accepts input only for active players in active rounds", () => {

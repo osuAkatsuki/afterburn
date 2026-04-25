@@ -13,7 +13,7 @@ https://afterburn.akatsuki.gg
 - Server-authoritative PvP state simulation.
 - Guns, missiles, flares, lock-on behavior, damage, respawns, scoring, and terrain collisions.
 - Static frontend deployment through nginx plus a separate realtime Socket.IO server.
-- Debug performance overlay via `F3`.
+- Debug performance/network overlay via `F3`.
 
 ## Controls
 
