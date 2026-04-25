@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TICK_RATE } from "../../src/shared/constants.js";
-import { addPlayerToRoom, createPlayer, createRoomState, startRound } from "../../src/shared/simulation.js";
+import { addPlayerToRoom, applyPlayerFlightStep, createPlayer, createRoomState, startRound } from "../../src/shared/simulation.js";
 import type { InputFrame, RoomState } from "../../src/shared/types.js";
 import { LocalPredictionBuffer } from "../../src/client/net/LocalPredictionBuffer.js";
 
@@ -74,5 +74,24 @@ describe("LocalPredictionBuffer", () => {
     expect(buffer.getStats().correctionMeters).toBeCloseTo(30);
     expect(sampled?.players.p1.position.x).toBeGreaterThan(0);
     expect(sampled?.players.p1.position.x).toBeLessThan(30);
+  });
+
+  it("does not smooth locally predicted input movement", () => {
+    const buffer = new LocalPredictionBuffer();
+    const first = predictionRoom("PRED4");
+    buffer.apply(first, "p1", 1000);
+
+    const localInput = input(1, { pitch: 1, afterburner: true });
+    buffer.recordInput(localInput);
+
+    const next = predictionRoom("PRED4");
+    const expectedPlayer = structuredClone(next.players.p1);
+    applyPlayerFlightStep(expectedPlayer, localInput, 1 / TICK_RATE);
+
+    const predicted = buffer.apply(next, "p1", 1016);
+
+    expect(buffer.getStats().correctionMeters).toBe(0);
+    expect(predicted?.players.p1.position.z).toBeCloseTo(expectedPlayer.position.z);
+    expect(predicted?.players.p1.rotation.pitch).toBeCloseTo(expectedPlayer.rotation.pitch);
   });
 });
