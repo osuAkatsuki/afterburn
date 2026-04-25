@@ -1,5 +1,6 @@
 import {
   AFTERBURNER_SPEED,
+  AOA_LIFT_ACCELERATION,
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
   BULLET_TTL_SECONDS,
@@ -18,6 +19,7 @@ import {
   GUN_HEAT_PER_SHOT,
   LIFT_ACCELERATION,
   MAX_AIRFRAME_SPEED,
+  MAX_LIFT_ACCELERATION,
   MAX_SPEED,
   MIN_SPEED,
   MISSILE_COOLDOWN_SECONDS,
@@ -315,9 +317,16 @@ function stepFlightVelocity(player: PlayerState, forward: Vec3, dt: number): Vec
   const forwardSpeed = dot(currentVelocity, forward);
   const up = normalize(applyQuaternion({ x: 0, y: 1, z: 0 }, orientation));
   const liftFactor = clamp(currentSpeed / MAX_SPEED, 0, 1.35);
+  const velocityDirection = normalize(currentVelocity);
+  const localVerticalFlow = clamp(dot(velocityDirection, up), -0.58, 0.58);
+  const liftMagnitude = clamp(
+    (LIFT_ACCELERATION - localVerticalFlow * AOA_LIFT_ACCELERATION) * liftFactor * liftFactor,
+    -MAX_LIFT_ACCELERATION,
+    MAX_LIFT_ACCELERATION
+  );
   const dragLoad = AIR_DRAG * Math.max(0.35, currentSpeed / MAX_SPEED) * currentSpeed;
   const engine = scale(forward, (targetSpeed - forwardSpeed) * ENGINE_RESPONSE + dragLoad);
-  const lift = scale(up, LIFT_ACCELERATION * liftFactor * liftFactor);
+  const lift = scale(up, liftMagnitude);
   const gravity = { x: 0, y: -GRAVITY_ACCELERATION, z: 0 };
   const drag = scale(currentVelocity, -AIR_DRAG * Math.max(0.35, currentSpeed / MAX_SPEED));
   const alignment = scale(subtract(scale(forward, currentSpeed), currentVelocity), VELOCITY_ALIGNMENT);

@@ -115,6 +115,25 @@ describe("shared simulation", () => {
     expect(length(player.velocity)).toBeGreaterThan(MAX_SPEED * 1.05);
   });
 
+  it("makes inverted neutral flight sink but lets pitch generate recovery lift", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+
+    player.position = { x: 0, y: 500, z: 0 };
+    setRotation(player, { pitch: 0, yaw: 0, roll: Math.PI });
+    player.velocity = { x: 0, y: 0, z: MAX_SPEED };
+    stepRoom(room, 0.2, 1100);
+    const neutralVerticalSpeed = player.velocity.y;
+    expect(neutralVerticalSpeed).toBeLessThan(-8);
+
+    player.position = { x: 0, y: 500, z: 0 };
+    setRotation(player, { pitch: 0.36, yaw: 0, roll: Math.PI });
+    player.velocity = { x: 0, y: 0, z: MAX_SPEED };
+    stepRoom(room, 0.2, 1300);
+
+    expect(player.velocity.y).toBeGreaterThan(neutralVerticalSpeed + 8);
+  });
+
   it("crashes aircraft on ocean impact without awarding score", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;

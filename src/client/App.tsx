@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DebugOverlay } from "./components/DebugOverlay.js";
 import { EndScreen } from "./components/EndScreen.js";
 import { CombatFeedback } from "./components/CombatFeedback.js";
 import { FlightDirector } from "./components/FlightDirector.js";
-import { GameCanvas } from "./components/GameCanvas.js";
+import { GameCanvas, type ClientDebugStats } from "./components/GameCanvas.js";
 import { Hud } from "./components/Hud.js";
 import { Lobby } from "./components/Lobby.js";
 import { Radar } from "./components/Radar.js";
@@ -40,6 +41,8 @@ export function App() {
   const [roomCode, setRoomCode] = useState(urlRoom);
   const [scoreboardVisible, setScoreboardVisible] = useState(false);
   const [showEndScreen, setShowEndScreen] = useState(false);
+  const [debugVisible, setDebugVisible] = useState(false);
+  const [debugStats, setDebugStats] = useState<ClientDebugStats>();
 
   const localPlayer = useMemo(() => (playerId && room ? room.players[playerId] : undefined), [playerId, room]);
   const showLobby = room?.phase !== "playing" && !showEndScreen;
@@ -100,6 +103,20 @@ export function App() {
     }
   }, [roundEndedNotice]);
 
+  useEffect(() => {
+    const toggleDebug = (event: KeyboardEvent) => {
+      if (event.code !== "F3" || event.repeat) {
+        return;
+      }
+
+      event.preventDefault();
+      setDebugVisible((visible) => !visible);
+    };
+
+    window.addEventListener("keydown", toggleDebug);
+    return () => window.removeEventListener("keydown", toggleDebug);
+  }, []);
+
   useFlightInput({
     room,
     playerId,
@@ -135,9 +152,21 @@ export function App() {
     emitStartRound();
   }, [emitStartRound]);
 
+  const updateDebugStats = useCallback((stats: ClientDebugStats) => {
+    setDebugStats(stats);
+  }, []);
+
   return (
     <div className="shell">
-      <GameCanvas canvasRef={canvasRef} reticleRef={reticleRef} sceneRef={sceneRef} room={room} playerId={playerId} />
+      <GameCanvas
+        canvasRef={canvasRef}
+        reticleRef={reticleRef}
+        sceneRef={sceneRef}
+        room={room}
+        playerId={playerId}
+        debugEnabled={debugVisible}
+        onDebugStats={updateDebugStats}
+      />
       <Hud room={room} localPlayer={localPlayer} />
       <FlightDirector room={room} localPlayer={localPlayer} />
       <Reticle ref={reticleRef} />
@@ -145,6 +174,7 @@ export function App() {
       <CombatFeedback notice={combatNotice} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />
       <Scoreboard room={room} visible={scoreboardVisible} />
+      <DebugOverlay visible={debugVisible} stats={debugStats} />
       <Lobby
         visible={showLobby}
         connectionStatus={connectionStatus}
