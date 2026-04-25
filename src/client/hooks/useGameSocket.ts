@@ -11,6 +11,8 @@ import type {
   ServerToClientEvents,
   StateSnapshotPayload
 } from "../../shared/types.js";
+import { getClientId, persistClientId } from "../net/ClientSession.js";
+import { createPingPayload, NetworkTelemetry, PING_INTERVAL_MS, type NetworkStats } from "../net/NetworkTelemetry.js";
 
 export type ConnectionStatus = "Connecting" | "Online" | "Offline";
 
@@ -24,15 +26,26 @@ export type RoundEndedNotice = {
   payload: RoundEndedPayload;
 };
 
+type LastJoin = {
+  roomId: string;
+  name: string;
+};
+
 export function useGameSocket() {
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const noticeId = useRef(0);
+  const clientId = useRef(getClientId());
+  const lastJoin = useRef<LastJoin | undefined>(undefined);
+  const pendingName = useRef("Pilot");
+  const telemetry = useRef(new NetworkTelemetry());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("Connecting");
   const [statusLine, setStatusLine] = useState("");
   const [room, setRoom] = useState<RoomState>();
+  const [snapshot, setSnapshot] = useState<StateSnapshotPayload>();
   const [playerId, setPlayerId] = useState("");
   const [combatNotice, setCombatNotice] = useState<CombatNotice>();
   const [roundEndedNotice, setRoundEndedNotice] = useState<RoundEndedNotice>();
+  const [networkStats, setNetworkStats] = useState<NetworkStats>(() => telemetry.current.getStats());
 
   useEffect(() => {
     const socket = io() as Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -41,22 +54,37 @@ export function useGameSocket() {
     socket.on("connect", () => {
       setConnectionStatus("Online");
       setStatusLine("");
+      const reconnecting = telemetry.current.hasConnected();
+      if (reconnecting && lastJoin.current) {
+        socket.emit("room:join", { ...lastJoin.current, clientId: clientId.current });
+      }
+      sendPing(socket);
+      setNetworkStats(telemetry.current.recordConnect());
     });
     socket.on("disconnect", () => {
       setConnectionStatus("Offline");
-      setStatusLine("Connection lost.");
+      setStatusLine("Connection lost. Reconnecting...");
     });
     socket.on("room:error", (payload: RoomErrorPayload) => {
       setStatusLine(payload.message);
     });
     socket.on("room:joined", (payload: RoomJoinedPayload) => {
       setRoom(payload.room);
+      setSnapshot({ tick: 0, sentAt: Date.now(), room: payload.room });
       setPlayerId(payload.playerId);
+      persistClientId(payload.playerId);
+      clientId.current = payload.playerId;
+      lastJoin.current = { roomId: payload.roomId, name: pendingName.current };
       setStatusLine("");
       history.replaceState(null, "", `?room=${payload.roomId}`);
     });
     socket.on("state:snapshot", (payload: StateSnapshotPayload) => {
       setRoom(payload.room);
+      setSnapshot(payload);
+      setNetworkStats(telemetry.current.recordSnapshot(payload));
+    });
+    socket.on("net:pong", (payload) => {
+      setNetworkStats(telemetry.current.recordPong(payload));
     });
     socket.on("combat:event", (event: CombatEvent) => {
       noticeId.current += 1;
@@ -68,18 +96,26 @@ export function useGameSocket() {
       setRoundEndedNotice({ id: noticeId.current, payload });
     });
 
+    const pingTimer = window.setInterval(() => {
+      sendPing(socket);
+    }, PING_INTERVAL_MS);
+
     return () => {
+      window.clearInterval(pingTimer);
       socket.close();
       socketRef.current = null;
     };
   }, []);
 
   const createRoom = useCallback((name: string) => {
-    socketRef.current?.emit("room:create", { name });
+    pendingName.current = name;
+    socketRef.current?.emit("room:create", { name, clientId: clientId.current });
   }, []);
 
   const joinRoom = useCallback((roomId: string, name: string) => {
-    socketRef.current?.emit("room:join", { roomId, name });
+    pendingName.current = name;
+    lastJoin.current = { roomId, name };
+    socketRef.current?.emit("room:join", { roomId, name, clientId: clientId.current });
   }, []);
 
   const startRound = useCallback(() => {
@@ -99,12 +135,20 @@ export function useGameSocket() {
     connectionStatus,
     createRoom,
     joinRoom,
+    networkStats,
     playerId,
     room,
     roundEndedNotice,
     sendInput,
     setLocalStatus,
+    snapshot,
     startRound,
     statusLine
   };
+}
+
+function sendPing(socket: Socket<ServerToClientEvents, ClientToServerEvents>): void {
+  if (socket.connected) {
+    socket.emit("net:ping", createPingPayload());
+  }
 }

@@ -17,12 +17,12 @@ type GameSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 export function registerGameSocketHandlers(io: GameServer, manager: GameRoomManager): void {
   io.on("connection", (socket) => {
     socket.on("room:create", (payload = {}) => {
-      joinSocketRoom(io, manager, socket, () => manager.createRoom(socket.id, payload.name ?? "Pilot"));
+      joinSocketRoom(io, manager, socket, () => manager.createRoom(socket.id, readName(payload), Date.now(), readClientId(payload)));
     });
 
     socket.on("room:join", (payload = {}) => {
-      const roomId = normalizeRoomId(payload.roomId ?? "");
-      joinSocketRoom(io, manager, socket, () => manager.joinRoom(roomId, socket.id, payload.name ?? "Pilot"));
+      const roomId = normalizeRoomId(readRoomId(payload));
+      joinSocketRoom(io, manager, socket, () => manager.joinRoom(roomId, socket.id, readName(payload), Date.now(), readClientId(payload)));
     });
 
     socket.on("round:start", () => {
@@ -39,8 +39,15 @@ export function registerGameSocketHandlers(io: GameServer, manager: GameRoomMana
       manager.setInput(socket.id, input);
     });
 
+    socket.on("net:ping", (payload) => {
+      socket.emit("net:pong", {
+        clientTime: typeof payload?.clientTime === "number" && Number.isFinite(payload.clientTime) ? payload.clientTime : 0,
+        serverTime: Date.now()
+      });
+    });
+
     socket.on("disconnect", () => {
-      const changedRooms = manager.removePlayer(socket.id);
+      const changedRooms = manager.disconnectSocket(socket.id);
       changedRooms.forEach((room) => emitSnapshot(io, manager, room));
     });
   });
@@ -91,6 +98,25 @@ function emitError(socket: GameSocket, message: string): void {
 }
 
 function emitSnapshot(io: GameServer, manager: GameRoomManager, room: RoomState): void {
-  const payload: StateSnapshotPayload = { tick: manager.getTick(), room };
+  const payload: StateSnapshotPayload = { tick: manager.getTick(), sentAt: Date.now(), room };
   io.to(room.id).emit("state:snapshot", payload);
+}
+
+function readName(payload: unknown): string {
+  const value = readPayloadValue(payload, "name");
+  return typeof value === "string" ? value : "Pilot";
+}
+
+function readRoomId(payload: unknown): string {
+  const value = readPayloadValue(payload, "roomId");
+  return typeof value === "string" ? value : "";
+}
+
+function readClientId(payload: unknown): string | undefined {
+  const value = readPayloadValue(payload, "clientId");
+  return typeof value === "string" ? value : undefined;
+}
+
+function readPayloadValue(payload: unknown, key: string): unknown {
+  return payload && typeof payload === "object" ? (payload as Record<string, unknown>)[key] : undefined;
 }

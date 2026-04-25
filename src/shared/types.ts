@@ -143,6 +143,7 @@ export type RoomErrorPayload = {
 
 export type StateSnapshotPayload = {
   tick: number;
+  sentAt: number;
   room: RoomState;
 };
 
@@ -153,11 +154,22 @@ export type RoundEndedPayload = {
 
 export type RoomCreatePayload = {
   name?: string;
+  clientId?: string;
 };
 
 export type RoomJoinPayload = {
   roomId?: string;
   name?: string;
+  clientId?: string;
+};
+
+export type NetPingPayload = {
+  clientTime: number;
+};
+
+export type NetPongPayload = {
+  clientTime: number;
+  serverTime: number;
 };
 
 export type ClientToServerEvents = {
@@ -165,6 +177,7 @@ export type ClientToServerEvents = {
   "room:join": (payload?: RoomJoinPayload) => void;
   "round:start": () => void;
   "input:update": (input: Partial<InputFrame>) => void;
+  "net:ping": (payload: NetPingPayload) => void;
 };
 
 export type ServerToClientEvents = {
@@ -173,4 +186,5 @@ export type ServerToClientEvents = {
   "state:snapshot": (payload: StateSnapshotPayload) => void;
   "combat:event": (event: CombatEvent) => void;
   "round:ended": (payload: RoundEndedPayload) => void;
+  "net:pong": (payload: NetPongPayload) => void;
 };

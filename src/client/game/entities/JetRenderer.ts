@@ -57,9 +57,7 @@ export class JetRenderer {
     });
   }
 
-  update(dt: number, room: RoomState | undefined): void {
-    const alpha = 1 - Math.exp(-dt * 16);
-
+  update(dt: number, room: RoomState | undefined, localPlayerId = ""): void {
     this.jets.forEach((jet, id) => {
       const target = this.jetTargets.get(id);
       if (!target) {
@@ -71,8 +69,14 @@ export class JetRenderer {
         return;
       }
 
-      jet.position.lerp(target.position, alpha);
-      jet.quaternion.slerp(target.quaternion, alpha);
+      if (id === localPlayerId) {
+        jet.position.copy(target.position);
+        jet.quaternion.copy(target.quaternion);
+      } else {
+        const alpha = 1 - Math.exp(-dt * 16);
+        jet.position.lerp(target.position, alpha);
+        jet.quaternion.slerp(target.quaternion, alpha);
+      }
 
       const player = room?.players[id];
       const afterburner = player?.input.afterburner === true;

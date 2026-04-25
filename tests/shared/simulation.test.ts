@@ -20,11 +20,13 @@ import {
   PLAYER_HIT_RADIUS,
   RESPAWN_MS,
   SPEED_UNIT,
+  TICK_RATE,
   TERRAIN_COLLISION_MARGIN,
   TERRAIN_ISLANDS
 } from "../../src/shared/constants.js";
 import {
   addPlayerToRoom,
+  applyPlayerFlightStep,
   createPlayer,
   createRoomState,
   setPlayerInput,
@@ -115,6 +117,34 @@ describe("shared simulation", () => {
     expect(length(player.velocity)).toBeGreaterThan(MAX_SPEED * 1.05);
   });
 
+  it("uses the exported flight step for server aircraft movement", () => {
+    const room = twoPlayerRoom();
+    const serverPlayer = room.players.p1;
+    const predictedPlayer = structuredClone(serverPlayer);
+    const input = {
+      seq: 1,
+      thrust: 0,
+      pitch: 0.8,
+      yaw: 0,
+      roll: 1,
+      fireGun: false,
+      fireMissile: false,
+      fireFlare: false,
+      afterburner: true,
+      timestamp: 1000
+    };
+
+    setPlayerInput(serverPlayer, input);
+    stepRoom(room, 1 / TICK_RATE, 1100);
+    applyPlayerFlightStep(predictedPlayer, input, 1 / TICK_RATE);
+
+    expect(predictedPlayer.position.x).toBeCloseTo(serverPlayer.position.x);
+    expect(predictedPlayer.position.y).toBeCloseTo(serverPlayer.position.y);
+    expect(predictedPlayer.position.z).toBeCloseTo(serverPlayer.position.z);
+    expect(predictedPlayer.rotation.roll).toBeCloseTo(serverPlayer.rotation.roll);
+    expect(predictedPlayer.velocity.z).toBeCloseTo(serverPlayer.velocity.z);
+  });
+
   it("makes inverted neutral flight sink but lets pitch generate recovery lift", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
@@ -132,6 +162,21 @@ describe("shared simulation", () => {
     stepRoom(room, 0.2, 1300);
 
     expect(player.velocity.y).toBeGreaterThan(neutralVerticalSpeed + 8);
+  });
+
+  it("quickly realigns velocity with the aircraft nose after a skid", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+    player.position = { x: 0, y: 500, z: 0 };
+    setRotation(player, { pitch: 0, yaw: 0, roll: 0 });
+    player.velocity = { x: MAX_SPEED, y: 0, z: 0 };
+
+    for (let i = 0; i < 12; i += 1) {
+      setPlayerInput(player, { seq: i + 1 });
+      stepRoom(room, 1 / TICK_RATE, 1100 + i * (1000 / TICK_RATE));
+    }
+
+    expect(dot(normalize(player.velocity), forwardVector(player.rotation))).toBeGreaterThan(0.94);
   });
 
   it("crashes aircraft on ocean impact without awarding score", () => {

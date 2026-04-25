@@ -1,11 +1,13 @@
 import type { ClientDebugStats } from "./GameCanvas.js";
+import type { NetworkStats } from "../net/NetworkTelemetry.js";
 
 type DebugOverlayProps = {
   visible: boolean;
   stats?: ClientDebugStats;
+  networkStats?: NetworkStats;
 };
 
-export function DebugOverlay({ visible, stats }: DebugOverlayProps) {
+export function DebugOverlay({ visible, stats, networkStats }: DebugOverlayProps) {
   if (!visible) {
     return null;
   }
@@ -23,7 +25,43 @@ export function DebugOverlay({ visible, stats }: DebugOverlayProps) {
             rows={[
               ["FPS", stats.fps.toFixed(0)],
               ["Frame", `${stats.frameMs.toFixed(1)} ms`],
-              ["Worst", `${stats.worstFrameMs.toFixed(1)} ms`]
+              ["Worst", `${stats.worstFrameMs.toFixed(1)} ms`],
+              ["Spikes", formatCount(stats.frameSpikeCount)],
+              ["Spike", `${stats.frameSpikeMs.toFixed(1)} ms`],
+              ["Spike age", `${stats.frameSpikeAgeMs.toFixed(0)} ms`],
+              ["Spike int", `${stats.frameSpikeIntervalMs.toFixed(0)} ms`]
+            ]}
+          />
+          <DebugSection
+            title="Network"
+            rows={[
+              ["RTT", networkStats?.rttMs ? `${networkStats.rttMs.toFixed(0)} ms` : "--"],
+              ["Clock", networkStats?.serverClockSamples ? `${networkStats.serverClockSamples}x` : "--"],
+              ["Snapshots", networkStats?.snapshotHz ? `${networkStats.snapshotHz.toFixed(1)} Hz` : "--"],
+              ["Jitter", networkStats?.snapshotJitterMs ? `${networkStats.snapshotJitterMs.toFixed(1)} ms` : "--"],
+              ["Receive age", networkStats?.lastSnapshotAt ? `${Math.max(0, performance.now() - networkStats.lastSnapshotAt).toFixed(0)} ms` : "--"],
+              ["Server age", `${stats.snapshotServerAgeMs.toFixed(0)} ms`],
+              ["Transport", networkStats?.serverClockSamples ? `${networkStats.transportDelayMs.toFixed(0)} ms` : "--"],
+              ["Interp delay", `${stats.snapshotDelayMs.toFixed(0)} ms`],
+              ["Buffer ahead", `${stats.snapshotBufferMs.toFixed(0)} ms`],
+              ["Pending inputs", formatCount(stats.pendingInputs)],
+              ["Ack", formatCount(stats.ackSeq)],
+              ["Ack delta", formatCount(stats.ackDelta)],
+              ["Ack age", `${stats.ackAgeMs.toFixed(0)} ms`],
+              ["Ack int", `${stats.ackIntervalMs.toFixed(0)} ms`],
+              ["Reconnects", formatCount(networkStats?.reconnects ?? 0)]
+            ]}
+          />
+          <DebugSection
+            title="Prediction"
+            rows={[
+              ["Predicted", `${stats.predictedMs.toFixed(0)} ms`],
+              ["Lead", `${stats.predictionLeadMeters.toFixed(1)} m`],
+              ["Correction", `${stats.correctionMeters.toFixed(1)} m`],
+              ["Corr last", `${stats.correctionLastMeters.toFixed(1)} m`],
+              ["Corr age", `${stats.correctionAgeMs.toFixed(0)} ms`],
+              ["Corr int", `${stats.correctionIntervalMs.toFixed(0)} ms`],
+              ["Corr events", formatCount(stats.correctionEvents)]
             ]}
           />
           <DebugSection

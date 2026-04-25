@@ -14,6 +14,8 @@ import { DogfightScene } from "./game/DogfightScene.js";
 import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
+import { ClientWorldPresenter } from "./net/ClientWorldPresenter.js";
+import { getSnapshotInterpolationDelayMs } from "./net/SnapshotBuffer.js";
 
 const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
 
@@ -21,6 +23,7 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
+  const worldPresenterRef = useRef(new ClientWorldPresenter());
   const autoJoinAttempted = useRef(false);
 
   const {
@@ -28,11 +31,13 @@ export function App() {
     connectionStatus,
     createRoom: emitCreateRoom,
     joinRoom: emitJoinRoom,
+    networkStats,
     playerId,
     room,
     roundEndedNotice,
     sendInput,
     setLocalStatus,
+    snapshot,
     startRound: emitStartRound,
     statusLine
   } = useGameSocket();
@@ -44,6 +49,7 @@ export function App() {
   const [debugStats, setDebugStats] = useState<ClientDebugStats>();
 
   const localPlayer = useMemo(() => (playerId && room ? room.players[playerId] : undefined), [playerId, room]);
+  const snapshotInterpolationDelayMs = useMemo(() => getSnapshotInterpolationDelayMs(networkStats), [networkStats]);
   const showLobby = room?.phase !== "playing" && !showEndScreen;
 
   useEffect(() => {
@@ -80,8 +86,25 @@ export function App() {
     room,
     playerId,
     sendInput,
+    onLocalInput: (input) => worldPresenterRef.current.recordInput(input),
     setScoreboardVisible
   });
+
+  useEffect(() => {
+    worldPresenterRef.current.clearPrediction();
+  }, [playerId, room?.id]);
+
+  useEffect(() => {
+    worldPresenterRef.current.setServerClockOffset(networkStats.serverClockSamples > 0 ? networkStats.serverClockOffsetMs : undefined);
+  }, [networkStats.serverClockOffsetMs, networkStats.serverClockSamples]);
+
+  useEffect(() => {
+    worldPresenterRef.current.setInterpolationDelay(snapshotInterpolationDelayMs);
+  }, [snapshotInterpolationDelayMs]);
+
+  useEffect(() => {
+    worldPresenterRef.current.setSnapshot(snapshot);
+  }, [snapshot]);
 
   const createRoom = useCallback(() => {
     persistCallsign(callsign);
@@ -121,7 +144,7 @@ export function App() {
         canvasRef={canvasRef}
         reticleRef={reticleRef}
         sceneRef={sceneRef}
-        room={room}
+        worldPresenterRef={worldPresenterRef}
         playerId={playerId}
         debugEnabled={debugVisible}
         onDebugStats={updateDebugStats}
@@ -133,7 +156,7 @@ export function App() {
       <CombatFeedback notice={combatNotice} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />
       <Scoreboard room={room} visible={scoreboardVisible} />
-      <DebugOverlay visible={debugVisible} stats={debugStats} />
+      <DebugOverlay visible={debugVisible} stats={debugStats} networkStats={networkStats} />
       <Lobby
         visible={showLobby}
         connectionStatus={connectionStatus}

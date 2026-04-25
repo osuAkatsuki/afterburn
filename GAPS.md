@@ -1,4 +1,4 @@
-# Browser Dogfight PvP: Gap Analysis
+# Afterburn: Gap Analysis
 
 This project is a playable browser PvP prototype. Compared with more serious air-combat games like War Thunder or Battlefield, the biggest remaining gaps are in flight physics, weapons, damage modeling, feedback, visual fidelity, and production robustness.
 
@@ -18,7 +18,7 @@ The current damage model is health-based. A more serious game needs location/mod
 
 ### Networking Polish
 
-The server is authoritative, but serious PvP needs stronger client prediction, reconciliation, interpolation buffers, lag compensation, packet-loss handling, reconnect behavior, bandwidth optimization, and better server-side validation.
+The server is authoritative, and the client now has local aircraft prediction, smoothed reconciliation, server-time snapshot interpolation for remote/world state, adaptive jitter buffering, reconnect rejoin support, reconnect grace on the server, detailed RTT/snapshot/prediction telemetry, and stricter socket payload handling. Serious PvP still needs lag-compensated combat validation, packet-loss/load testing, bandwidth optimization, deeper server-side validation, and better behavior at very high cross-region latency.
 
 ### Feedback And Game Feel
 
@@ -42,7 +42,7 @@ The HUD needs more combat instrumentation: airspeed ladder, altitude ladder, hea
 
 ### Production Features
 
-The game still needs settings, input rebinding, joystick/gamepad support, graphics options, accessibility checks, reconnects, deployment hardening, room lifecycle cleanup, anti-cheat basics, diagnostics, and telemetry.
+The game still needs settings, input rebinding, joystick/gamepad support, graphics options, accessibility checks, deployment hardening, room lifecycle cleanup, anti-cheat basics, production metrics, and telemetry.
 
 ## Highest-Leverage Next Steps
 

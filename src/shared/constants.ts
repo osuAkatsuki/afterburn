@@ -7,6 +7,7 @@ export const RESPAWN_MS = 3000;
 export const ARENA_RADIUS = 1800;
 export const MAX_ALTITUDE = 900;
 export const OUT_OF_BOUNDS_GRACE_MS = 10000;
+export const DISCONNECT_GRACE_MS = 15000;
 export const OCEAN_LEVEL = 0;
 export const TERRAIN_COLLISION_MARGIN = 2;
 
@@ -84,7 +85,7 @@ export const AOA_LIFT_ACCELERATION = 260;
 export const MAX_LIFT_ACCELERATION = 150;
 export const ENGINE_RESPONSE = 0.95;
 export const AIR_DRAG = 0.08;
-export const VELOCITY_ALIGNMENT = 1.65;
+export const VELOCITY_ALIGNMENT = 4.2;
 
 export const GUN_DAMAGE = 12;
 export const GUN_COOLDOWN_SECONDS = 0.085;

@@ -5,22 +5,25 @@ type UseFlightInputOptions = {
   room?: RoomState;
   playerId: string;
   sendInput: (input: InputFrame) => void;
+  onLocalInput?: (input: InputFrame) => void;
   setScoreboardVisible: (visible: boolean) => void;
 };
 
-export function useFlightInput({ room, playerId, sendInput, setScoreboardVisible }: UseFlightInputOptions): void {
+export function useFlightInput({ room, playerId, sendInput, onLocalInput, setScoreboardVisible }: UseFlightInputOptions): void {
   const keys = useRef(new Set<string>());
   const seq = useRef(0);
-  const lastInputSent = useRef(0);
+  const nextInputAt = useRef(0);
   const roomRef = useRef(room);
   const playerIdRef = useRef(playerId);
   const sendInputRef = useRef(sendInput);
+  const onLocalInputRef = useRef(onLocalInput);
 
   useEffect(() => {
     roomRef.current = room;
     playerIdRef.current = playerId;
     sendInputRef.current = sendInput;
-  }, [playerId, room, sendInput]);
+    onLocalInputRef.current = onLocalInput;
+  }, [onLocalInput, playerId, room, sendInput]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -63,13 +66,18 @@ export function useFlightInput({ room, playerId, sendInput, setScoreboardVisible
     window.addEventListener("blur", clearKeys);
 
     let frame = 0;
+    const inputIntervalMs = 1000 / 30;
     const tick = (now: number) => {
       const currentRoom = roomRef.current;
       const currentPlayerId = playerIdRef.current;
-      if (currentRoom?.phase === "playing" && currentPlayerId && now - lastInputSent.current >= 1000 / 30) {
-        lastInputSent.current = now;
+      if (currentRoom?.phase === "playing" && currentPlayerId && now >= nextInputAt.current) {
+        if (nextInputAt.current <= 0 || now - nextInputAt.current > inputIntervalMs * 4) {
+          nextInputAt.current = now;
+        }
+
+        nextInputAt.current += inputIntervalMs;
         seq.current += 1;
-        sendInputRef.current({
+        const input = {
           seq: seq.current,
           thrust: 0,
           pitch: axis("KeyS", "KeyW", keys.current) || axis("ArrowUp", "ArrowDown", keys.current) || axis("KeyI", "KeyK", keys.current),
@@ -80,7 +88,11 @@ export function useFlightInput({ room, playerId, sendInput, setScoreboardVisible
           fireFlare: keys.current.has("KeyF"),
           afterburner: keys.current.has("ShiftLeft") || keys.current.has("ShiftRight"),
           timestamp: now
-        });
+        };
+        onLocalInputRef.current?.(input);
+        sendInputRef.current(input);
+      } else if (currentRoom?.phase !== "playing") {
+        nextInputAt.current = 0;
       }
 
       frame = requestAnimationFrame(tick);

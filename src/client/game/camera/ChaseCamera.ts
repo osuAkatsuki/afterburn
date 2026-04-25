@@ -9,9 +9,9 @@ export class ChaseCamera {
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
   update(dt: number, local: PlayerState | undefined, localJet: THREE.Group | undefined): void {
-    const cameraAlpha = 1 - Math.exp(-dt * 7);
-    const rotationAlpha = 1 - Math.exp(-dt * 10);
-    const lookAlpha = 1 - Math.exp(-dt * 9);
+    const cameraAlpha = 1 - Math.exp(-dt * 16);
+    const rotationAlpha = 1 - Math.exp(-dt * 24);
+    const lookAlpha = 1 - Math.exp(-dt * 12);
 
     if (!local || local.status !== "alive" || !localJet?.visible) {
       this.camera.position.lerp(new THREE.Vector3(0, 520, -860), cameraAlpha * 0.35);
