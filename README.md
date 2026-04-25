@@ -25,6 +25,7 @@ https://afterburn.akatsuki.gg
 - `Space`: guns
 - `E`: missile
 - `F`: flare
+- `M`: mute/unmute audio
 - `Tab`: scoreboard
 - `F3`: debug overlay
 

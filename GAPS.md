@@ -22,7 +22,7 @@ The server is authoritative, and the client now has local aircraft prediction, s
 
 ### Feedback And Game Feel
 
-The game needs stronger sensory feedback: engine audio, afterburner roar, missile warning tones, lock tones, gunfire, hit sounds, explosion sounds, screen shake, camera shake, near-miss cues, damage direction, smoke, fire, and debris.
+The game now has initial synthesized audio for engine thrust, afterburner, weapons, missile warnings, lock tones, hits, damage, kills, and explosions. The remaining gap is higher-fidelity authored audio, spatial mixing, near-miss cues, screen/camera shake, damage direction, smoke, fire, and debris.
 
 ### Visual Fidelity
 
@@ -50,7 +50,7 @@ The game still needs settings, input rebinding, joystick/gamepad support, graphi
 2. Add a proper lead-computed gunsight and make guns converge toward the aim point.
 3. Improve missile behavior with stronger lock feedback, flare probability, arming distance, and turn limits.
 4. Add module-like damage states for engine, wings, and controls.
-5. Add audio for engine, afterburner, gunfire, lock warnings, missile warnings, hits, and explosions.
+5. Upgrade the initial synthesized audio into authored/spatialized audio with near-miss and damage-direction cues.
 6. Improve aircraft model readability and terrain collision fidelity.
 7. Add team mode and clearer round structure.
 
