@@ -9,21 +9,28 @@ import {
   FLARE_DECOY_RANGE,
   FLARE_SPEED,
   FLARE_TTL_SECONDS,
+  GRAVITY_ACCELERATION,
+  GUN_CONVERGENCE_DISTANCE,
   GUN_COOLDOWN_SECONDS,
   GUN_DAMAGE,
   GUN_HEAT_DECAY_PER_SECOND,
   GUN_HEAT_MAX,
   GUN_HEAT_PER_SHOT,
+  LIFT_ACCELERATION,
+  MAX_AIRFRAME_SPEED,
   MAX_SPEED,
   MIN_SPEED,
   MISSILE_COOLDOWN_SECONDS,
   MISSILE_AMMO_PER_ROUND,
   MISSILE_DAMAGE,
   MISSILE_HIT_RADIUS,
+  MISSILE_BLAST_RADIUS,
   MISSILE_LOCK_BREAK_DOT,
   MISSILE_LOCK_DOT,
   MISSILE_LOCK_RANGE,
   MISSILE_LOCK_SECONDS,
+  MISSILE_MIN_BLAST_DAMAGE,
+  MISSILE_PROXIMITY_RADIUS,
   MISSILE_SPEED,
   MISSILE_TTL_SECONDS,
   MISSILE_TURN_RATE,
@@ -33,7 +40,11 @@ import {
   ROLL_RATE,
   ROUND_MS,
   TURN_RATE,
-  OUT_OF_BOUNDS_GRACE_MS
+  OUT_OF_BOUNDS_GRACE_MS,
+  STALL_SPEED,
+  AIR_DRAG,
+  ENGINE_RESPONSE,
+  VELOCITY_ALIGNMENT
 } from "./constants.js";
 import {
   add,
@@ -43,6 +54,7 @@ import {
   distance,
   dot,
   forwardVector,
+  length,
   normalize,
   multiplyQuaternions,
   quaternionFromAxisAngle,
@@ -57,6 +69,7 @@ import { isOutsidePlayArea, isTerrainImpact } from "./terrain.js";
 import type { CombatEvent, InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "./types.js";
 
 const palette = ["#ef4444", "#38bdf8", "#facc15", "#a78bfa", "#34d399", "#fb7185"];
+type ProjectileImpactReason = "terrain" | "player" | "flare";
 
 export const neutralInput = (timestamp = 0): InputFrame => ({
   seq: 0,
@@ -271,10 +284,9 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
   player.orientation = orientation;
   player.rotation = rotationFromQuaternion(orientation);
 
-  const speed = player.input.afterburner ? AFTERBURNER_SPEED : MAX_SPEED;
   const forward = playerForward(player);
   const previousPosition = cloneVec3(player.position);
-  player.velocity = scale(forward, speed);
+  player.velocity = stepFlightVelocity(player, forward, dt);
   player.position = add(player.position, scale(player.velocity, dt));
   if (resolveArenaHazards(room, player, now, events, previousPosition)) {
     return;
@@ -293,6 +305,26 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
   if (player.input.fireFlare && player.flareCooldown <= 0 && player.flaresRemaining > 0) {
     fireFlare(room, player, now, events);
   }
+}
+
+function stepFlightVelocity(player: PlayerState, forward: Vec3, dt: number): Vec3 {
+  const orientation = player.orientation ?? quaternionFromRotation(player.rotation);
+  const currentVelocity = length(player.velocity) > 10 ? player.velocity : scale(forward, MAX_SPEED);
+  const currentSpeed = clamp(length(currentVelocity), STALL_SPEED, MAX_AIRFRAME_SPEED);
+  const targetSpeed = player.input.afterburner ? AFTERBURNER_SPEED : MAX_SPEED;
+  const forwardSpeed = dot(currentVelocity, forward);
+  const up = normalize(applyQuaternion({ x: 0, y: 1, z: 0 }, orientation));
+  const liftFactor = clamp(currentSpeed / MAX_SPEED, 0, 1.35);
+  const dragLoad = AIR_DRAG * Math.max(0.35, currentSpeed / MAX_SPEED) * currentSpeed;
+  const engine = scale(forward, (targetSpeed - forwardSpeed) * ENGINE_RESPONSE + dragLoad);
+  const lift = scale(up, LIFT_ACCELERATION * liftFactor * liftFactor);
+  const gravity = { x: 0, y: -GRAVITY_ACCELERATION, z: 0 };
+  const drag = scale(currentVelocity, -AIR_DRAG * Math.max(0.35, currentSpeed / MAX_SPEED));
+  const alignment = scale(subtract(scale(forward, currentSpeed), currentVelocity), VELOCITY_ALIGNMENT);
+  const nextVelocity = add(currentVelocity, scale(add(add(add(engine, lift), gravity), add(drag, alignment)), dt));
+  const nextSpeed = clamp(length(nextVelocity), STALL_SPEED * 0.92, MAX_AIRFRAME_SPEED);
+  player.throttle = targetSpeed / AFTERBURNER_SPEED;
+  return scale(normalize(nextVelocity), nextSpeed);
 }
 
 function resolveArenaHazards(
@@ -355,13 +387,20 @@ function playerForward(player: PlayerState): Vec3 {
 
 function fireGun(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {
   const forward = playerForward(player);
+  const orientation = player.orientation ?? quaternionFromRotation(player.rotation);
+  const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
+  const up = normalize(applyQuaternion({ x: 0, y: 1, z: 0 }, orientation));
+  const barrelSide = Math.floor(now / (GUN_COOLDOWN_SECONDS * 1000)) % 2 === 0 ? -1 : 1;
+  const muzzle = add(add(add(player.position, scale(forward, 22)), scale(right, barrelSide * 8.5)), scale(up, -0.8));
+  const convergencePoint = add(player.position, scale(forward, GUN_CONVERGENCE_DISTANCE));
+  const shotDirection = normalize(subtract(convergencePoint, muzzle));
   const id = `${player.id}-b-${now}-${Math.random().toString(36).slice(2, 7)}`;
   room.projectiles[id] = {
     id,
     type: "bullet",
     ownerId: player.id,
-    position: add(player.position, scale(forward, 28)),
-    velocity: scale(forward, BULLET_SPEED),
+    position: muzzle,
+    velocity: scale(shotDirection, BULLET_SPEED),
     ttl: BULLET_TTL_SECONDS,
     damage: GUN_DAMAGE,
     createdAt: now
@@ -501,14 +540,113 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
       }
     }
 
+    const previousPosition = cloneVec3(projectile.position);
     projectile.position = add(projectile.position, scale(projectile.velocity, dt));
-    const hit = findProjectileHit(room, projectile);
-    if (!hit) {
+
+    if (projectile.type === "flare") {
       return;
     }
 
-    applyDamage(room, projectile.ownerId, hit.id, projectile.damage, projectile.type === "missile" ? "missile" : "bullet", now, events);
-    delete room.projectiles[projectile.id];
+    const terrainImpact = isTerrainImpact(projectile.position, previousPosition);
+    if (terrainImpact) {
+      if (projectile.type === "missile") {
+        detonateMissile(room, projectile, "terrain", now, events);
+      } else {
+        detonateBullet(room, projectile, "terrain", now, events);
+      }
+      delete room.projectiles[projectile.id];
+      return;
+    }
+
+    if (projectile.type === "missile") {
+      const flareHit = findMissileFlareHit(room, projectile);
+      if (flareHit) {
+        detonateMissile(room, projectile, "flare", now, events);
+        delete room.projectiles[flareHit.id];
+        delete room.projectiles[projectile.id];
+        return;
+      }
+
+      const hit = findMissileFuseTarget(room, projectile);
+      if (hit) {
+        detonateMissile(room, projectile, "player", now, events, hit.id);
+        delete room.projectiles[projectile.id];
+      }
+      return;
+    }
+
+    const hit = findBulletHit(room, projectile);
+    if (hit) {
+      detonateBullet(room, projectile, "player", now, events, hit);
+      delete room.projectiles[projectile.id];
+    }
+  });
+}
+
+function emitProjectileImpact(
+  room: RoomState,
+  projectile: ProjectileState,
+  reason: ProjectileImpactReason,
+  events: CombatEvent[]
+): void {
+  if (projectile.type !== "bullet" && projectile.type !== "missile") {
+    return;
+  }
+
+  events.push({
+    type: "impact",
+    roomId: room.id,
+    ownerId: projectile.ownerId,
+    projectileType: projectile.type,
+    position: cloneVec3(projectile.position),
+    reason
+  });
+}
+
+function detonateBullet(
+  room: RoomState,
+  projectile: ProjectileState,
+  reason: ProjectileImpactReason,
+  now: number,
+  events: CombatEvent[],
+  hit?: PlayerState
+): void {
+  if (hit) {
+    applyDamage(room, projectile.ownerId, hit.id, projectile.damage, "bullet", now, events);
+  }
+
+  emitProjectileImpact(room, projectile, reason, events);
+}
+
+function detonateMissile(
+  room: RoomState,
+  projectile: ProjectileState,
+  reason: ProjectileImpactReason,
+  now: number,
+  events: CombatEvent[],
+  directPlayerId?: string
+): void {
+  emitProjectileImpact(room, projectile, reason, events);
+
+  Object.values(room.players).forEach((player) => {
+    if (player.status !== "alive" || player.id === projectile.ownerId) {
+      return;
+    }
+
+    const range = distance(player.position, projectile.position);
+    if (range > MISSILE_BLAST_RADIUS + PLAYER_HIT_RADIUS) {
+      return;
+    }
+
+    const damage =
+      player.id === directPlayerId
+        ? MISSILE_DAMAGE
+        : Math.round(
+            MISSILE_MIN_BLAST_DAMAGE +
+              (MISSILE_DAMAGE - MISSILE_MIN_BLAST_DAMAGE) * (1 - clamp(range / (MISSILE_BLAST_RADIUS + PLAYER_HIT_RADIUS), 0, 1))
+          );
+
+    applyDamage(room, projectile.ownerId, player.id, damage, "missile", now, events);
   });
 }
 
@@ -533,20 +671,35 @@ function getMissileTargetPosition(room: RoomState, missile: ProjectileState): Ve
   return target?.status === "alive" ? target.position : undefined;
 }
 
-function findProjectileHit(room: RoomState, projectile: ProjectileState): PlayerState | undefined {
-  if (projectile.type === "flare") {
-    return undefined;
-  }
-
-  const radius = projectile.type === "missile" ? MISSILE_HIT_RADIUS : BULLET_HIT_RADIUS;
-
+function findBulletHit(room: RoomState, projectile: ProjectileState): PlayerState | undefined {
   return Object.values(room.players).find((player) => {
     if (player.id === projectile.ownerId || player.status !== "alive") {
       return false;
     }
 
-    return distance(player.position, projectile.position) <= PLAYER_HIT_RADIUS + radius;
+    return distance(player.position, projectile.position) <= PLAYER_HIT_RADIUS + BULLET_HIT_RADIUS;
   });
+}
+
+function findMissileFuseTarget(room: RoomState, projectile: ProjectileState): PlayerState | undefined {
+  return Object.values(room.players)
+    .filter((player) => player.id !== projectile.ownerId && player.status === "alive")
+    .map((player) => ({ player, range: distance(player.position, projectile.position) }))
+    .filter(({ range }) => range <= PLAYER_HIT_RADIUS + Math.max(MISSILE_HIT_RADIUS, MISSILE_PROXIMITY_RADIUS))
+    .sort((a, b) => a.range - b.range)[0]?.player;
+}
+
+function findMissileFlareHit(room: RoomState, missile: ProjectileState): ProjectileState | undefined {
+  if (missile.targetType !== "flare" || !missile.targetId) {
+    return undefined;
+  }
+
+  const flare = room.projectiles[missile.targetId];
+  if (!flare || flare.type !== "flare") {
+    return undefined;
+  }
+
+  return distance(flare.position, missile.position) <= MISSILE_HIT_RADIUS ? flare : undefined;
 }
 
 function applyDamage(
@@ -596,7 +749,9 @@ function respawnPlayer(room: RoomState, player: PlayerState, index: number, now:
   player.health = PLAYER_HEALTH;
   player.gunHeat = 0;
   player.gunCooldown = 0;
-  player.missileCooldown = Math.min(player.missileCooldown, 1);
+  player.missilesRemaining = MISSILE_AMMO_PER_ROUND;
+  player.flaresRemaining = FLARE_AMMO_PER_ROUND;
+  player.missileCooldown = 0;
   player.flareCooldown = 0;
   clearMissileLock(player);
   clearOutOfBoundsWarning(player);

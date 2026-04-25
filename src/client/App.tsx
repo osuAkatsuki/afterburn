@@ -62,6 +62,11 @@ export function App() {
       return;
     }
 
+    if (event.type === "impact") {
+      sceneRef.current?.spawnProjectileImpact(event.position, event.projectileType);
+      return;
+    }
+
     if (event.type === "crash") {
       const player = latestRoomRef.current?.players[event.playerId];
       if (player) {

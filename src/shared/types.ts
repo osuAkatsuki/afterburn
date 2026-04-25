@@ -104,6 +104,14 @@ export type CombatEvent =
       weapon: ProjectileType;
     }
   | {
+      type: "impact";
+      roomId: string;
+      ownerId: string;
+      projectileType: "bullet" | "missile";
+      position: Vec3;
+      reason: "terrain" | "player" | "flare";
+    }
+  | {
       type: "crash";
       roomId: string;
       playerId: string;

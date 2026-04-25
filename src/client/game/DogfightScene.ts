@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { ARENA_RADIUS, MAX_ALTITUDE, TERRAIN_ISLANDS } from "../../shared/constants.js";
+import { ARENA_RADIUS, BULLET_SPEED, BULLET_TTL_SECONDS, MAX_ALTITUDE, TERRAIN_ISLANDS } from "../../shared/constants.js";
 import type { TerrainIsland } from "../../shared/constants.js";
 import type { PlayerState, ProjectileState, RoomState } from "../../shared/types.js";
 
@@ -105,6 +105,39 @@ export class DogfightScene {
     group.position.set(position.x, position.y, position.z);
     this.scene.add(group);
     this.explosions.push({ group, born: performance.now(), life: 360 });
+  }
+
+  spawnProjectileImpact(position: { x: number; y: number; z: number }, projectileType: "bullet" | "missile"): void {
+    const origin = new THREE.Vector3(position.x, position.y, position.z);
+
+    if (projectileType === "missile") {
+      this.spawnExplosion(position, "#f97316");
+      for (let i = 0; i < 18; i += 1) {
+        const direction = new THREE.Vector3((Math.random() - 0.5) * 24, 10 + Math.random() * 28, (Math.random() - 0.5) * 24);
+        this.spawnPuff({
+          origin,
+          velocity: direction,
+          color: i % 3 === 0 ? "#facc15" : "#6b7280",
+          opacity: i % 3 === 0 ? 0.22 : 0.38,
+          life: 1.25 + Math.random() * 0.9,
+          size: 2.8 + Math.random() * 2.8,
+          growth: 3.2,
+          additive: i % 3 === 0
+        });
+      }
+      return;
+    }
+
+    this.spawnHitSpark(position, "#fef08a");
+    this.spawnPuff({
+      origin,
+      velocity: new THREE.Vector3((Math.random() - 0.5) * 8, 5 + Math.random() * 8, (Math.random() - 0.5) * 8),
+      color: "#d6d3ce",
+      opacity: 0.22,
+      life: 0.65,
+      size: 1.1,
+      growth: 2.1
+    });
   }
 
   render(now: number): void {
@@ -683,6 +716,7 @@ export class DogfightScene {
       this.reticle.dataset.visible = "false";
       this.reticle.dataset.lock = "idle";
       this.reticle.dataset.targetVisible = "false";
+      this.reticle.dataset.leadVisible = "false";
       return;
     }
 
@@ -695,6 +729,7 @@ export class DogfightScene {
     if (aimPoint.z < -1 || aimPoint.z > 1) {
       this.reticle.dataset.visible = "false";
       this.reticle.dataset.targetVisible = "false";
+      this.reticle.dataset.leadVisible = "false";
       return;
     }
 
@@ -707,6 +742,77 @@ export class DogfightScene {
     this.reticle.style.setProperty("--reticle-x", `${x}px`);
     this.reticle.style.setProperty("--reticle-y", `${y}px`);
     this.updateLockTargetIndicator(local);
+    this.updateGunLeadIndicator(local, localJet, forward);
+  }
+
+  private updateGunLeadIndicator(local: PlayerState, localJet: THREE.Group, forward: THREE.Vector3): void {
+    if (!this.reticle || !this.state) {
+      return;
+    }
+
+    const maxRange = BULLET_SPEED * BULLET_TTL_SECONDS;
+    const localPosition = localJet.position;
+    const candidates = Object.values(this.state.players)
+      .filter((player) => player.id !== local.id && player.status === "alive")
+      .map((player) => {
+        const targetPosition = new THREE.Vector3(player.position.x, player.position.y, player.position.z);
+        const offset = targetPosition.clone().sub(localPosition);
+        const range = offset.length();
+        const alignment = offset.normalize().dot(forward);
+        return { player, targetPosition, range, alignment };
+      })
+      .filter(({ range, alignment }) => range <= maxRange && alignment > 0.35)
+      .sort((a, b) => b.alignment - a.alignment || a.range - b.range);
+
+    const candidate = candidates[0];
+    if (!candidate) {
+      this.reticle.dataset.leadVisible = "false";
+      return;
+    }
+
+    const targetVelocity = new THREE.Vector3(candidate.player.velocity.x, candidate.player.velocity.y, candidate.player.velocity.z);
+    const interceptTime = this.interceptTime(localPosition, candidate.targetPosition, targetVelocity, BULLET_SPEED);
+    if (!interceptTime || interceptTime > BULLET_TTL_SECONDS) {
+      this.reticle.dataset.leadVisible = "false";
+      return;
+    }
+
+    const leadPoint = candidate.targetPosition.clone().addScaledVector(targetVelocity, interceptTime).project(this.camera);
+    if (leadPoint.z < -1 || leadPoint.z > 1) {
+      this.reticle.dataset.leadVisible = "false";
+      return;
+    }
+
+    const margin = 28;
+    const x = Math.max(margin, Math.min(window.innerWidth - margin, ((leadPoint.x + 1) / 2) * window.innerWidth));
+    const y = Math.max(margin, Math.min(window.innerHeight - margin, ((-leadPoint.y + 1) / 2) * window.innerHeight));
+
+    this.reticle.dataset.leadVisible = "true";
+    this.reticle.style.setProperty("--lead-x", `${x}px`);
+    this.reticle.style.setProperty("--lead-y", `${y}px`);
+  }
+
+  private interceptTime(origin: THREE.Vector3, target: THREE.Vector3, targetVelocity: THREE.Vector3, projectileSpeed: number): number | undefined {
+    const offset = target.clone().sub(origin);
+    const a = targetVelocity.lengthSq() - projectileSpeed * projectileSpeed;
+    const b = 2 * offset.dot(targetVelocity);
+    const c = offset.lengthSq();
+
+    if (Math.abs(a) < 0.00001) {
+      const t = -c / b;
+      return t > 0 ? t : undefined;
+    }
+
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant < 0) {
+      return undefined;
+    }
+
+    const root = Math.sqrt(discriminant);
+    const t1 = (-b - root) / (2 * a);
+    const t2 = (-b + root) / (2 * a);
+    const times = [t1, t2].filter((time) => time > 0).sort((first, second) => first - second);
+    return times[0];
   }
 
   private updateLockTargetIndicator(local: PlayerState): void {
