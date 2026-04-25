@@ -71,7 +71,8 @@ describe("LocalPredictionBuffer", () => {
     corrected.players.p1.position = { x: 30, y: 200, z: 0 };
     const sampled = buffer.apply(corrected, "p1", 1016);
 
-    expect(buffer.getStats().correctionMeters).toBeCloseTo(30);
+    expect(buffer.getStats().correctionMeters).toBeGreaterThan(0);
+    expect(buffer.getStats().correctionMeters).toBeLessThan(30);
     expect(sampled?.players.p1.position.x).toBeGreaterThan(0);
     expect(sampled?.players.p1.position.x).toBeLessThan(30);
   });
@@ -86,12 +87,32 @@ describe("LocalPredictionBuffer", () => {
 
     const next = predictionRoom("PRED4");
     const expectedPlayer = structuredClone(next.players.p1);
-    applyPlayerFlightStep(expectedPlayer, localInput, 1 / TICK_RATE);
+    applyPlayerFlightStep(expectedPlayer, localInput, 0.016);
 
     const predicted = buffer.apply(next, "p1", 1016);
 
     expect(buffer.getStats().correctionMeters).toBe(0);
     expect(predicted?.players.p1.position.z).toBeCloseTo(expectedPlayer.position.z);
     expect(predicted?.players.p1.rotation.pitch).toBeCloseTo(expectedPlayer.rotation.pitch);
+  });
+
+  it("continues predicting local motion between network input ticks", () => {
+    const buffer = new LocalPredictionBuffer();
+    const first = predictionRoom("PRED5");
+    buffer.apply(first, "p1", 1000);
+
+    const localInput = input(1, { pitch: 1, afterburner: true });
+    buffer.recordInput(localInput);
+
+    const expectedPlayer = structuredClone(first.players.p1);
+    applyPlayerFlightStep(expectedPlayer, localInput, 0.016);
+    const predicted = buffer.apply(predictionRoom("PRED5"), "p1", 1016);
+
+    applyPlayerFlightStep(expectedPlayer, localInput, 0.008);
+    const continued = buffer.apply(predictionRoom("PRED5"), "p1", 1024);
+
+    expect(continued?.players.p1.position.z).not.toBeCloseTo(predicted?.players.p1.position.z ?? 0);
+    expect(continued?.players.p1.position.z).toBeCloseTo(expectedPlayer.position.z);
+    expect(continued?.players.p1.rotation.pitch).toBeCloseTo(expectedPlayer.rotation.pitch);
   });
 });

@@ -22,6 +22,7 @@ export class LocalPredictionBuffer {
   private renderedPlayer?: PlayerState;
   private previousAuthoritativePlayer?: PlayerState;
   private positionCorrection: Vec3 = { x: 0, y: 0, z: 0 };
+  private lastCorrectionMeters = 0;
   private lastRenderTime = 0;
   private stats: LocalPredictionStats = {
     pendingInputs: 0,
@@ -50,6 +51,7 @@ export class LocalPredictionBuffer {
       this.renderedPlayer = undefined;
       this.previousAuthoritativePlayer = undefined;
       this.positionCorrection = { x: 0, y: 0, z: 0 };
+      this.lastCorrectionMeters = 0;
       this.lastRenderTime = renderTime;
       this.stats = { pendingInputs: 0, predictedMs: 0, leadMeters: 0, correctionMeters: 0 };
       return room;
@@ -68,8 +70,7 @@ export class LocalPredictionBuffer {
 
     const dt = this.consumeRenderDt(renderTime);
     const authorityChanged = this.hasAuthoritativeChange(player);
-    const correctionMeters = authorityChanged && this.renderedPlayer ? distance(this.renderedPlayer.position, targetPlayer.position) : 0;
-    const renderedPlayer = this.predictPlayer(targetPlayer, correctionMeters, authorityChanged, dt);
+    const renderedPlayer = this.predictPlayer(targetPlayer, authorityChanged, dt);
     this.previousAuthoritativePlayer = clone(player);
     this.renderedPlayer = clone(renderedPlayer);
     room.players[localPlayerId] = renderedPlayer;
@@ -78,7 +79,7 @@ export class LocalPredictionBuffer {
       pendingInputs: pendingInputs.length,
       predictedMs: pendingInputs.length * REPLAY_DT_SECONDS * 1000,
       leadMeters: distance(authoritativePosition, targetPlayer.position),
-      correctionMeters
+      correctionMeters: magnitudeVec3(this.positionCorrection)
     };
     return room;
   }
@@ -88,6 +89,7 @@ export class LocalPredictionBuffer {
     this.renderedPlayer = undefined;
     this.previousAuthoritativePlayer = undefined;
     this.positionCorrection = { x: 0, y: 0, z: 0 };
+    this.lastCorrectionMeters = 0;
     this.lastRenderTime = 0;
     this.stats = { pendingInputs: 0, predictedMs: 0, leadMeters: 0, correctionMeters: 0 };
   }
@@ -102,22 +104,43 @@ export class LocalPredictionBuffer {
     }
   }
 
-  private predictPlayer(targetPlayer: PlayerState, correctionMeters: number, authorityChanged: boolean, dt: number): PlayerState {
-    if (!this.renderedPlayer || correctionMeters > SNAP_CORRECTION_METERS) {
+  private predictPlayer(targetPlayer: PlayerState, authorityChanged: boolean, dt: number): PlayerState {
+    if (!this.renderedPlayer) {
       this.positionCorrection = { x: 0, y: 0, z: 0 };
+      this.lastCorrectionMeters = 0;
       return clone(targetPlayer);
     }
 
-    if (authorityChanged && correctionMeters > MIN_SMOOTHED_CORRECTION_METERS) {
-      this.positionCorrection = subtractVec3(this.renderedPlayer.position, targetPlayer.position);
+    const predictedPlayer = clone(this.renderedPlayer);
+    applyPlayerFlightStep(predictedPlayer, this.inputs.at(-1) ?? targetPlayer.input, dt);
+
+    if (authorityChanged) {
+      const correction = subtractVec3(targetPlayer.position, predictedPlayer.position);
+      this.lastCorrectionMeters = magnitudeVec3(correction);
+
+      if (this.lastCorrectionMeters > SNAP_CORRECTION_METERS) {
+        this.positionCorrection = { x: 0, y: 0, z: 0 };
+        this.lastCorrectionMeters = 0;
+        return clone(targetPlayer);
+      }
+
+      if (this.lastCorrectionMeters > MIN_SMOOTHED_CORRECTION_METERS) {
+        this.positionCorrection = correction;
+      }
     }
 
     const alpha = 1 - Math.exp(-dt * CORRECTION_RATE);
-    this.positionCorrection = lerpVec3(this.positionCorrection, { x: 0, y: 0, z: 0 }, alpha);
+    const correctionStep = scaleVec3(this.positionCorrection, alpha);
+    this.positionCorrection = subtractVec3(this.positionCorrection, correctionStep);
 
     return {
       ...clone(targetPlayer),
-      position: addVec3(targetPlayer.position, this.positionCorrection)
+      position: addVec3(predictedPlayer.position, correctionStep),
+      velocity: predictedPlayer.velocity,
+      rotation: predictedPlayer.rotation,
+      orientation: predictedPlayer.orientation,
+      throttle: predictedPlayer.throttle,
+      input: predictedPlayer.input
     };
   }
 
@@ -157,16 +180,16 @@ function subtractVec3(before: Vec3, after: Vec3): Vec3 {
   };
 }
 
-function lerpVec3(before: Vec3, after: Vec3, alpha: number): Vec3 {
+function scaleVec3(value: Vec3, scalar: number): Vec3 {
   return {
-    x: lerp(before.x, after.x, alpha),
-    y: lerp(before.y, after.y, alpha),
-    z: lerp(before.z, after.z, alpha)
+    x: value.x * scalar,
+    y: value.y * scalar,
+    z: value.z * scalar
   };
 }
 
-function lerp(before: number, after: number, alpha: number): number {
-  return before + (after - before) * alpha;
+function magnitudeVec3(value: Vec3): number {
+  return Math.hypot(value.x, value.y, value.z);
 }
 
 function clone<T>(value: T): T {
