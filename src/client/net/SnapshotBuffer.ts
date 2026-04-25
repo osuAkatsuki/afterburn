@@ -1,7 +1,17 @@
 import type { PlayerState, ProjectileState, Quaternion, RoomState, Rotation, StateSnapshotPayload, Vec3 } from "../../shared/types.js";
 
 export const SNAPSHOT_INTERPOLATION_DELAY_MS = 110;
+export const MAX_SNAPSHOT_INTERPOLATION_DELAY_MS = 220;
+const SNAPSHOT_SAFETY_FRAMES = 2;
+const JITTER_SAFETY_MULTIPLIER = 1.25;
 const MAX_BUFFERED_SNAPSHOTS = 24;
+
+export type SnapshotTimingStats = {
+  serverClockSamples: number;
+  snapshotHz: number;
+  snapshotJitterMs: number;
+  transportDelayMs: number;
+};
 
 type BufferedSnapshot = {
   tick: number;
@@ -13,6 +23,7 @@ type BufferedSnapshot = {
 export class SnapshotBuffer {
   private readonly snapshots: BufferedSnapshot[] = [];
   private serverClockOffsetMs?: number;
+  private interpolationDelayMs = SNAPSHOT_INTERPOLATION_DELAY_MS;
 
   push(snapshot: StateSnapshotPayload, receivedAt = performance.now(), serverClockOffsetMs?: number): void {
     this.setServerClockOffset(serverClockOffsetMs);
@@ -39,6 +50,16 @@ export class SnapshotBuffer {
     }
   }
 
+  setInterpolationDelay(delayMs: number): void {
+    if (Number.isFinite(delayMs)) {
+      this.interpolationDelayMs = clamp(delayMs, SNAPSHOT_INTERPOLATION_DELAY_MS, MAX_SNAPSHOT_INTERPOLATION_DELAY_MS);
+    }
+  }
+
+  getInterpolationDelayMs(): number {
+    return this.interpolationDelayMs;
+  }
+
   sample(renderTime: number, localPlayerId = ""): RoomState | undefined {
     if (this.snapshots.length === 0) {
       return undefined;
@@ -48,7 +69,7 @@ export class SnapshotBuffer {
       return cloneRoom(this.snapshots[0].room);
     }
 
-    const targetTime = renderTime - SNAPSHOT_INTERPOLATION_DELAY_MS;
+    const targetTime = renderTime - this.interpolationDelayMs;
     const afterIndex = this.snapshots.findIndex((snapshot) => this.timelineAt(snapshot) >= targetTime);
 
     if (afterIndex === -1) {
@@ -80,7 +101,7 @@ export class SnapshotBuffer {
       return 0;
     }
 
-    return Math.max(0, this.timelineAt(this.latest) - (renderTime - SNAPSHOT_INTERPOLATION_DELAY_MS));
+    return Math.max(0, this.timelineAt(this.latest) - (renderTime - this.interpolationDelayMs));
   }
 
   getLatestServerAgeMs(renderTime: number): number {
@@ -98,6 +119,20 @@ export class SnapshotBuffer {
   private timelineAt(snapshot: BufferedSnapshot): number {
     return toClientTimeline(snapshot.sentAt, snapshot.receivedAt, this.serverClockOffsetMs);
   }
+}
+
+export function getSnapshotInterpolationDelayMs(stats: SnapshotTimingStats): number {
+  if (stats.serverClockSamples <= 0) {
+    return SNAPSHOT_INTERPOLATION_DELAY_MS;
+  }
+
+  const snapshotIntervalMs = stats.snapshotHz > 0 ? 1000 / stats.snapshotHz : 1000 / 30;
+  const targetDelay =
+    finiteOrZero(stats.transportDelayMs) +
+    snapshotIntervalMs * SNAPSHOT_SAFETY_FRAMES +
+    finiteOrZero(stats.snapshotJitterMs) * JITTER_SAFETY_MULTIPLIER;
+
+  return Math.round(clamp(targetDelay, SNAPSHOT_INTERPOLATION_DELAY_MS, MAX_SNAPSHOT_INTERPOLATION_DELAY_MS));
 }
 
 function toClientTimeline(serverSentAt: number, receivedAt: number, serverClockOffsetMs?: number): number {
@@ -195,6 +230,14 @@ function lerpAngle(before: number, after: number, alpha: number): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0;
 }
 
 function cloneRoom(room: RoomState): RoomState {

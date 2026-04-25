@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { StateSnapshotPayload } from "../../shared/types.js";
 import { DogfightScene, type SceneDebugStats } from "../game/DogfightScene.js";
 import type { LocalPredictionBuffer } from "../net/LocalPredictionBuffer.js";
-import { SnapshotBuffer, SNAPSHOT_INTERPOLATION_DELAY_MS } from "../net/SnapshotBuffer.js";
+import { SnapshotBuffer } from "../net/SnapshotBuffer.js";
 
 export type ClientDebugStats = SceneDebugStats & {
   fps: number;
@@ -36,6 +36,7 @@ type GameCanvasProps = {
   localPredictionRef: RefObject<LocalPredictionBuffer>;
   snapshot?: StateSnapshotPayload;
   serverClockOffsetMs?: number;
+  snapshotInterpolationDelayMs: number;
   playerId: string;
   debugEnabled: boolean;
   onDebugStats: (stats: ClientDebugStats) => void;
@@ -48,6 +49,7 @@ export function GameCanvas({
   localPredictionRef,
   snapshot,
   serverClockOffsetMs,
+  snapshotInterpolationDelayMs,
   playerId,
   debugEnabled,
   onDebugStats
@@ -66,6 +68,10 @@ export function GameCanvas({
   useEffect(() => {
     snapshotBufferRef.current.setServerClockOffset(serverClockOffsetMs);
   }, [serverClockOffsetMs]);
+
+  useEffect(() => {
+    snapshotBufferRef.current.setInterpolationDelay(snapshotInterpolationDelayMs);
+  }, [snapshotInterpolationDelayMs]);
 
   useEffect(() => {
     if (snapshot) {
@@ -126,7 +132,7 @@ export function GameCanvas({
           frameSpikeAgeMs: frameSpikeAt > 0 ? now - frameSpikeAt : 0,
           frameSpikeIntervalMs,
           snapshotBufferMs: snapshotBufferRef.current.getBufferedMs(now),
-          snapshotDelayMs: SNAPSHOT_INTERPOLATION_DELAY_MS,
+          snapshotDelayMs: snapshotBufferRef.current.getInterpolationDelayMs(),
           snapshotServerAgeMs: snapshotBufferRef.current.getLatestServerAgeMs(now),
           pendingInputs: predictionStats.pendingInputs,
           predictedMs: predictionStats.predictedMs,

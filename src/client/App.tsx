@@ -15,6 +15,7 @@ import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
 import { LocalPredictionBuffer } from "./net/LocalPredictionBuffer.js";
+import { getSnapshotInterpolationDelayMs } from "./net/SnapshotBuffer.js";
 
 const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
 
@@ -48,6 +49,7 @@ export function App() {
   const [debugStats, setDebugStats] = useState<ClientDebugStats>();
 
   const localPlayer = useMemo(() => (playerId && room ? room.players[playerId] : undefined), [playerId, room]);
+  const snapshotInterpolationDelayMs = useMemo(() => getSnapshotInterpolationDelayMs(networkStats), [networkStats]);
   const showLobby = room?.phase !== "playing" && !showEndScreen;
 
   useEffect(() => {
@@ -133,6 +135,7 @@ export function App() {
         localPredictionRef={localPredictionRef}
         snapshot={snapshot}
         serverClockOffsetMs={networkStats.serverClockSamples > 0 ? networkStats.serverClockOffsetMs : undefined}
+        snapshotInterpolationDelayMs={snapshotInterpolationDelayMs}
         playerId={playerId}
         debugEnabled={debugVisible}
         onDebugStats={updateDebugStats}

@@ -42,7 +42,7 @@ type LastJoin = {
 };
 
 const CLIENT_ID_KEY = "afterburn.sessionClientId";
-const PING_INTERVAL_MS = 2000;
+const PING_INTERVAL_MS = 1000;
 
 export function useGameSocket() {
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
@@ -85,6 +85,7 @@ export function useGameSocket() {
       if (reconnecting && lastJoin.current) {
         socket.emit("room:join", { ...lastJoin.current, clientId: clientId.current });
       }
+      sendPing(socket);
       reconnects.current += 1;
       setNetworkStats((stats) => ({ ...stats, reconnects: Math.max(0, reconnects.current - 1) }));
     });
@@ -124,9 +125,7 @@ export function useGameSocket() {
     });
 
     const pingTimer = window.setInterval(() => {
-      if (socket.connected) {
-        socket.emit("net:ping", { clientTime: performance.now() });
-      }
+      sendPing(socket);
     }, PING_INTERVAL_MS);
 
     return () => {
@@ -174,6 +173,12 @@ export function useGameSocket() {
     startRound,
     statusLine
   };
+}
+
+function sendPing(socket: Socket<ServerToClientEvents, ClientToServerEvents>): void {
+  if (socket.connected) {
+    socket.emit("net:ping", { clientTime: performance.now() });
+  }
 }
 
 function updateSnapshotStats(
