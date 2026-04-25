@@ -1,0 +1,79 @@
+name: production-images
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        image:
+          - name: afterburn-server
+            dockerfile: Dockerfile.server
+          - name: afterburn-web
+            dockerfile: Dockerfile.web
+
+    steps:
+      - name: Check out latest commit
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/osuakatsuki/${{ matrix.image.name }}
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./${{ matrix.image.dockerfile }}
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/osuakatsuki/${{ matrix.image.name }}:latest
+            ghcr.io/osuakatsuki/${{ matrix.image.name }}:${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: root
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: GHCR_TOKEN
+          script: |
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+            cd /opt/akatsuki
+            docker compose pull afterburn-server afterburn-web
+            docker compose up -d afterburn-server afterburn-web
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

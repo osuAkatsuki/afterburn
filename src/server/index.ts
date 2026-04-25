@@ -10,6 +10,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from "../shared/types
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProduction = process.env.NODE_ENV === "production";
+const serveClient = process.env.SERVE_CLIENT !== "0";
 const port = Number(process.env.PORT ?? 3000);
 
 const app = express();
@@ -26,7 +27,9 @@ app.get("/health", (_req, res) => {
 registerGameSocketHandlers(io, manager);
 startGameLoop(io, manager);
 
-await configureClientServing(app, __dirname, isProduction);
+if (serveClient) {
+  await configureClientServing(app, __dirname, isProduction);
+}
 
 httpServer.listen(port, () => {
   console.log(`Afterburn Arena listening on http://localhost:${port}`);

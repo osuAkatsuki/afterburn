@@ -1,12 +1,14 @@
 {
-  "name": "i-want-to-build-a-multiplayer",
+  "name": "afterburn",
   "version": "1.0.0",
-  "description": "Browser-based multiplayer arcade fighter jet dogfighting MVP.",
+  "description": "Browser-based multiplayer arcade fighter jet dogfighting game.",
   "type": "module",
   "main": "dist/node/server/index.js",
   "scripts": {
     "dev": "tsx src/server/index.ts",
-    "build": "vite build && tsc -p tsconfig.server.json",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
     "start": "NODE_ENV=production node dist/node/server/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
