@@ -62,6 +62,30 @@ describe("SnapshotBuffer", () => {
     expect(buffer.getLatestServerAgeMs(180)).toBeCloseTo(30);
   });
 
+  it("sorts out-of-order delivery by server send time", () => {
+    const buffer = new SnapshotBuffer();
+    buffer.push({ ...snapshot(1, makeRoom(0, 0)), sentAt: 1000 }, 100, 1000);
+    buffer.push({ ...snapshot(3, makeRoom(300, 300)), sentAt: 1200 }, 150, 1000);
+    buffer.push({ ...snapshot(2, makeRoom(100, 100)), sentAt: 1100 }, 250, 1000);
+
+    const sampled = buffer.sample(160, "local");
+
+    expect(sampled?.players.remote.position.z).toBeCloseTo(50);
+    expect(sampled?.players.local.position.x).toBe(300);
+  });
+
+  it("replaces the newest snapshot when the same tick is received again", () => {
+    const buffer = new SnapshotBuffer();
+    buffer.push({ ...snapshot(1, makeRoom(0, 0)), sentAt: 1000 }, 100, 1000);
+    buffer.push({ ...snapshot(2, makeRoom(100, 100)), sentAt: 1100 }, 150, 1000);
+    buffer.push({ ...snapshot(2, makeRoom(200, 200)), sentAt: 1100 }, 175, 1000);
+
+    const sampled = buffer.sample(350, "local");
+
+    expect(sampled?.players.remote.position.z).toBe(200);
+    expect(sampled?.players.local.position.x).toBe(200);
+  });
+
   it("uses a configured interpolation delay for remote state", () => {
     const buffer = new SnapshotBuffer();
     buffer.setInterpolationDelay(150);
