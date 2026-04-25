@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EndScreen } from "./components/EndScreen.js";
+import { CombatFeedback } from "./components/CombatFeedback.js";
 import { GameCanvas } from "./components/GameCanvas.js";
 import { Hud } from "./components/Hud.js";
 import { Lobby } from "./components/Lobby.js";
@@ -15,6 +16,7 @@ const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpper
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
   const latestRoomRef = useRef<RoomState | undefined>(undefined);
   const autoJoinAttempted = useRef(false);
@@ -54,11 +56,20 @@ export function App() {
 
   useEffect(() => {
     const event = combatNotice?.event;
-    if (event?.type !== "kill") {
+    if (!event || (event.type !== "hit" && event.type !== "kill")) {
       return;
     }
 
     const victim = latestRoomRef.current?.players[event.victimId];
+    if (!victim) {
+      return;
+    }
+
+    if (event.type === "hit") {
+      sceneRef.current?.spawnHitSpark(victim.position, event.weapon === "missile" ? "#f97316" : "#fef08a");
+      return;
+    }
+
     if (victim) {
       sceneRef.current?.spawnExplosion(victim.position, victim.color);
     }
@@ -71,7 +82,6 @@ export function App() {
   }, [roundEndedNotice]);
 
   useFlightInput({
-    canvasRef,
     room,
     playerId,
     sendInput,
@@ -108,9 +118,10 @@ export function App() {
 
   return (
     <div className="shell">
-      <GameCanvas canvasRef={canvasRef} sceneRef={sceneRef} room={room} playerId={playerId} />
+      <GameCanvas canvasRef={canvasRef} reticleRef={reticleRef} sceneRef={sceneRef} room={room} playerId={playerId} />
       <Hud room={room} localPlayer={localPlayer} />
-      <Reticle />
+      <Reticle ref={reticleRef} />
+      <CombatFeedback notice={combatNotice} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />
       <Scoreboard room={room} visible={scoreboardVisible} />
       <Lobby

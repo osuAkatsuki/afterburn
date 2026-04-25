@@ -1,4 +1,4 @@
-import { MISSILE_COOLDOWN_SECONDS } from "../../shared/constants.js";
+import { FLARE_COOLDOWN_SECONDS, MISSILE_COOLDOWN_SECONDS } from "../../shared/constants.js";
 import { clamp } from "../../shared/math.js";
 import type { PlayerState, RoomState } from "../../shared/types.js";
 
@@ -35,7 +35,23 @@ export function missileReadyRatio(player?: PlayerState): number {
     return 1;
   }
 
+  if (player.missilesRemaining <= 0) {
+    return 0;
+  }
+
   return 1 - clamp(player.missileCooldown / MISSILE_COOLDOWN_SECONDS, 0, 1);
+}
+
+export function flareReadyRatio(player?: PlayerState): number {
+  if (!player) {
+    return 1;
+  }
+
+  if (player.flaresRemaining <= 0) {
+    return 0;
+  }
+
+  return 1 - clamp(player.flareCooldown / FLARE_COOLDOWN_SECONDS, 0, 1);
 }
 
 export function speedLabel(player?: PlayerState): string {

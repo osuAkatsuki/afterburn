@@ -1,24 +1,34 @@
 import * as THREE from "three";
 import { ARENA_RADIUS, MAX_ALTITUDE } from "../../shared/constants.js";
-import { forwardVector, lerpAngle } from "../../shared/math.js";
 import type { PlayerState, ProjectileState, RoomState } from "../../shared/types.js";
 
 type VisualJetTarget = {
   position: THREE.Vector3;
-  rotation: THREE.Euler;
+  quaternion: THREE.Quaternion;
   visible: boolean;
+};
+
+type SmokePuff = {
+  mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  velocity: THREE.Vector3;
+  age: number;
+  life: number;
+  startScale: number;
 };
 
 export class DogfightScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 6000);
+  private readonly reticle: HTMLElement | null;
   private readonly clock = new THREE.Clock();
   private readonly jets = new Map<string, THREE.Group>();
   private readonly jetTargets = new Map<string, VisualJetTarget>();
   private readonly projectiles = new Map<string, THREE.Object3D>();
+  private readonly smokePuffs: SmokePuff[] = [];
   private readonly explosions: Array<{ group: THREE.Group; born: number; life: number }> = [];
   private readonly cameraLookTarget = new THREE.Vector3(0, 180, 0);
+  private readonly chaseCameraFlip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
   private state: RoomState | undefined;
   private localPlayerId = "";
 
@@ -28,7 +38,8 @@ export class DogfightScene {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, reticle: HTMLElement | null) {
+    this.reticle = reticle;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -64,10 +75,35 @@ export class DogfightScene {
     this.explosions.push({ group, born: performance.now(), life: 900 });
   }
 
+  spawnHitSpark(position: { x: number; y: number; z: number }, color: string): void {
+    const group = new THREE.Group();
+    const material = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    for (let i = 0; i < 9; i += 1) {
+      const spark = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 9 + Math.random() * 10), material.clone());
+      spark.position.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+      spark.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      spark.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 55, (Math.random() - 0.35) * 55, (Math.random() - 0.5) * 55);
+      group.add(spark);
+    }
+
+    group.position.set(position.x, position.y, position.z);
+    this.scene.add(group);
+    this.explosions.push({ group, born: performance.now(), life: 360 });
+  }
+
   render(now: number): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.updateJets(dt);
     this.updateCamera(dt);
+    this.updateReticle();
+    this.updateMissileSmoke(now, dt);
     this.updateExplosions(now, dt);
     this.renderer.render(this.scene, this.camera);
   }
@@ -153,16 +189,16 @@ export class DogfightScene {
       }
 
       const targetPosition = new THREE.Vector3(player.position.x, player.position.y, player.position.z);
-      const targetRotation = new THREE.Euler(-player.rotation.pitch, player.rotation.yaw, -player.rotation.roll, "YXZ");
+      const targetQuaternion = this.playerQuaternion(player);
       this.jetTargets.set(player.id, {
         position: targetPosition,
-        rotation: targetRotation,
+        quaternion: targetQuaternion,
         visible: player.status === "alive"
       });
 
       if (jet.userData.initialized !== true) {
         jet.position.copy(targetPosition);
-        jet.rotation.copy(targetRotation);
+        jet.quaternion.copy(targetQuaternion);
         jet.userData.initialized = true;
       }
     });
@@ -187,7 +223,7 @@ export class DogfightScene {
 
       mesh.position.set(projectile.position.x, projectile.position.y, projectile.position.z);
       const velocity = new THREE.Vector3(projectile.velocity.x, projectile.velocity.y, projectile.velocity.z).normalize();
-      mesh.lookAt(mesh.position.clone().add(velocity));
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), velocity);
     });
   }
 
@@ -231,15 +267,117 @@ export class DogfightScene {
 
   private createProjectile(projectile: ProjectileState): THREE.Object3D {
     if (projectile.type === "missile") {
-      const missile = new THREE.Mesh(
-        new THREE.ConeGeometry(2.2, 10, 8),
-        new THREE.MeshStandardMaterial({ color: "#f97316", emissive: "#7c2d12", emissiveIntensity: 0.4 })
-      );
-      missile.rotation.x = Math.PI / 2;
-      return missile;
+      return this.createMissile();
     }
 
-    return new THREE.Mesh(new THREE.SphereGeometry(2.3, 8, 8), new THREE.MeshBasicMaterial({ color: "#fff7ad" }));
+    if (projectile.type === "flare") {
+      return this.createFlare();
+    }
+
+    return this.createBulletTracer();
+  }
+
+  private createBulletTracer(): THREE.Group {
+    const tracer = new THREE.Group();
+
+    const core = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.28, 15, 8),
+      new THREE.MeshBasicMaterial({ color: "#fff7ad" })
+    );
+    core.rotation.x = Math.PI / 2;
+    tracer.add(core);
+
+    const glow = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.75, 0.75, 20, 8),
+      new THREE.MeshBasicMaterial({
+        color: "#f97316",
+        transparent: true,
+        opacity: 0.26,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    glow.rotation.x = Math.PI / 2;
+    tracer.add(glow);
+
+    return tracer;
+  }
+
+  private createFlare(): THREE.Group {
+    const flare = new THREE.Group();
+    flare.userData.projectileType = "flare";
+
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(4.2, 14, 10),
+      new THREE.MeshBasicMaterial({ color: "#fffbeb", transparent: true, opacity: 0.95 })
+    );
+    flare.add(core);
+
+    const corona = new THREE.Mesh(
+      new THREE.SphereGeometry(9, 14, 10),
+      new THREE.MeshBasicMaterial({ color: "#fb923c", transparent: true, opacity: 0.35, depthWrite: false })
+    );
+    flare.add(corona);
+
+    const light = new THREE.PointLight("#f97316", 2.5, 120);
+    flare.add(light);
+    return flare;
+  }
+
+  private createMissile(): THREE.Group {
+    const missile = new THREE.Group();
+    missile.userData.projectileType = "missile";
+    missile.userData.nextSmokeAt = 0;
+
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: "#d8dde4", roughness: 0.38, metalness: 0.35 });
+    const darkMaterial = new THREE.MeshStandardMaterial({ color: "#202938", roughness: 0.5, metalness: 0.2 });
+    const warningMaterial = new THREE.MeshStandardMaterial({ color: "#b91c1c", roughness: 0.42, metalness: 0.12 });
+
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 11, 18), bodyMaterial);
+    body.rotation.x = Math.PI / 2;
+    body.castShadow = true;
+    missile.add(body);
+
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(1.08, 3.2, 18), warningMaterial);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.z = 7.1;
+    nose.castShadow = true;
+    missile.add(nose);
+
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.14, 1.14, 1.3, 18), darkMaterial);
+    tail.rotation.x = Math.PI / 2;
+    tail.position.z = -5.9;
+    tail.castShadow = true;
+    missile.add(tail);
+
+    const finMaterial = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.55, metalness: 0.18 });
+    const finGeometries = [
+      { geometry: new THREE.BoxGeometry(0.16, 2.4, 2.9), position: new THREE.Vector3(0, 1.45, -4.6) },
+      { geometry: new THREE.BoxGeometry(0.16, 2.4, 2.9), position: new THREE.Vector3(0, -1.45, -4.6) },
+      { geometry: new THREE.BoxGeometry(2.4, 0.16, 2.9), position: new THREE.Vector3(1.45, 0, -4.6) },
+      { geometry: new THREE.BoxGeometry(2.4, 0.16, 2.9), position: new THREE.Vector3(-1.45, 0, -4.6) }
+    ];
+
+    finGeometries.forEach(({ geometry, position }) => {
+      const fin = new THREE.Mesh(geometry, finMaterial);
+      fin.position.copy(position);
+      fin.castShadow = true;
+      missile.add(fin);
+    });
+
+    const exhaust = new THREE.Mesh(
+      new THREE.ConeGeometry(0.85, 4.6, 14),
+      new THREE.MeshBasicMaterial({ color: "#f97316", transparent: true, opacity: 0.7, depthWrite: false })
+    );
+    exhaust.rotation.x = -Math.PI / 2;
+    exhaust.position.z = -8.2;
+    missile.add(exhaust);
+
+    const glow = new THREE.PointLight("#fb923c", 1.8, 65);
+    glow.position.z = -7;
+    missile.add(glow);
+
+    return missile;
   }
 
   private updateJets(dt: number): void {
@@ -257,19 +395,23 @@ export class DogfightScene {
       }
 
       jet.position.lerp(target.position, alpha);
-      jet.rotation.order = "YXZ";
-      jet.rotation.set(
-        lerpAngle(jet.rotation.x, target.rotation.x, alpha),
-        lerpAngle(jet.rotation.y, target.rotation.y, alpha),
-        lerpAngle(jet.rotation.z, target.rotation.z, alpha)
-      );
+      jet.quaternion.slerp(target.quaternion, alpha);
     });
+  }
+
+  private playerQuaternion(player: PlayerState): THREE.Quaternion {
+    if (player.orientation) {
+      return new THREE.Quaternion(player.orientation.x, player.orientation.y, player.orientation.z, player.orientation.w);
+    }
+
+    return new THREE.Quaternion().setFromEuler(new THREE.Euler(-player.rotation.pitch, player.rotation.yaw, -player.rotation.roll, "YXZ"));
   }
 
   private updateCamera(dt: number): void {
     const local = this.state?.players[this.localPlayerId];
     const localJet = this.jets.get(this.localPlayerId);
     const cameraAlpha = 1 - Math.exp(-dt * 7);
+    const rotationAlpha = 1 - Math.exp(-dt * 10);
     const lookAlpha = 1 - Math.exp(-dt * 9);
 
     if (!local || local.status !== "alive" || !localJet?.visible) {
@@ -279,26 +421,146 @@ export class DogfightScene {
       return;
     }
 
-    const forward = forwardVector({
-      pitch: -localJet.rotation.x,
-      yaw: localJet.rotation.y,
-      roll: -localJet.rotation.z
-    });
-    const desired = new THREE.Vector3(
-      localJet.position.x - forward.x * 72,
-      localJet.position.y + 24 - forward.y * 24,
-      localJet.position.z - forward.z * 72
-    );
-    const desiredLook = new THREE.Vector3(
-      localJet.position.x + forward.x * 150,
-      localJet.position.y + 12 + forward.y * 80,
-      localJet.position.z + forward.z * 150
-    );
+    const desiredOffset = new THREE.Vector3(0, 20, -86).applyQuaternion(localJet.quaternion);
+    const desired = localJet.position.clone().add(desiredOffset);
+    const desiredRotation = localJet.quaternion.clone().multiply(this.chaseCameraFlip);
 
     this.camera.position.lerp(desired, cameraAlpha);
-    this.cameraLookTarget.lerp(desiredLook, lookAlpha);
-    this.camera.lookAt(this.cameraLookTarget);
+    this.camera.quaternion.slerp(desiredRotation, rotationAlpha);
     this.camera.far = Math.max(6000, MAX_ALTITUDE * 6);
+  }
+
+  private updateReticle(): void {
+    if (!this.reticle) {
+      return;
+    }
+
+    const local = this.state?.players[this.localPlayerId];
+    const localJet = this.jets.get(this.localPlayerId);
+    if (!local || local.status !== "alive" || !localJet?.visible) {
+      this.reticle.dataset.visible = "false";
+      this.reticle.dataset.lock = "idle";
+      this.reticle.dataset.targetVisible = "false";
+      return;
+    }
+
+    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(localJet.quaternion).normalize();
+    const aimPoint = localJet.position
+      .clone()
+      .add(forward.multiplyScalar(900))
+      .project(this.camera);
+
+    if (aimPoint.z < -1 || aimPoint.z > 1) {
+      this.reticle.dataset.visible = "false";
+      this.reticle.dataset.targetVisible = "false";
+      return;
+    }
+
+    const margin = 36;
+    const x = Math.max(margin, Math.min(window.innerWidth - margin, ((aimPoint.x + 1) / 2) * window.innerWidth));
+    const y = Math.max(margin, Math.min(window.innerHeight - margin, ((-aimPoint.y + 1) / 2) * window.innerHeight));
+
+    this.reticle.dataset.visible = "true";
+    this.reticle.dataset.lock = local.missileLockAcquired ? "locked" : local.missileLockProgress > 0 ? "locking" : "idle";
+    this.reticle.style.setProperty("--reticle-x", `${x}px`);
+    this.reticle.style.setProperty("--reticle-y", `${y}px`);
+    this.updateLockTargetIndicator(local);
+  }
+
+  private updateLockTargetIndicator(local: PlayerState): void {
+    if (!this.reticle || !local.missileLockTargetId || local.missileLockProgress <= 0) {
+      if (this.reticle) {
+        this.reticle.dataset.targetVisible = "false";
+      }
+      return;
+    }
+
+    const target = this.state?.players[local.missileLockTargetId];
+    const targetJet = target ? this.jets.get(target.id) : undefined;
+    if (!target || target.status !== "alive" || !targetJet?.visible) {
+      this.reticle.dataset.targetVisible = "false";
+      return;
+    }
+
+    const targetPoint = targetJet.position.clone().project(this.camera);
+    if (targetPoint.z < -1 || targetPoint.z > 1) {
+      this.reticle.dataset.targetVisible = "false";
+      return;
+    }
+
+    const margin = 32;
+    const x = Math.max(margin, Math.min(window.innerWidth - margin, ((targetPoint.x + 1) / 2) * window.innerWidth));
+    const y = Math.max(margin, Math.min(window.innerHeight - margin, ((-targetPoint.y + 1) / 2) * window.innerHeight));
+
+    this.reticle.dataset.targetVisible = "true";
+    this.reticle.style.setProperty("--target-x", `${x}px`);
+    this.reticle.style.setProperty("--target-y", `${y}px`);
+  }
+
+  private updateMissileSmoke(now: number, dt: number): void {
+    this.projectiles.forEach((projectile) => {
+      if (projectile.userData.projectileType !== "missile") {
+        return;
+      }
+
+      if (now < (projectile.userData.nextSmokeAt as number)) {
+        return;
+      }
+
+      projectile.userData.nextSmokeAt = now + 55;
+      const direction = new THREE.Vector3(0, 0, 1).applyQuaternion(projectile.quaternion).normalize();
+      const origin = projectile.position.clone().addScaledVector(direction, -8.6);
+      this.spawnSmokePuff(origin, direction);
+    });
+
+    for (let i = this.smokePuffs.length - 1; i >= 0; i -= 1) {
+      const puff = this.smokePuffs[i];
+      puff.age += dt;
+      const progress = puff.age / puff.life;
+
+      puff.mesh.position.addScaledVector(puff.velocity, dt);
+      puff.mesh.scale.setScalar(puff.startScale * (1 + progress * 2.2));
+      puff.mesh.material.opacity = Math.max(0, 0.36 * (1 - progress));
+
+      if (progress >= 1) {
+        this.scene.remove(puff.mesh);
+        puff.mesh.geometry.dispose();
+        puff.mesh.material.dispose();
+        this.smokePuffs.splice(i, 1);
+      }
+    }
+
+    while (this.smokePuffs.length > 220) {
+      const puff = this.smokePuffs.shift();
+      if (!puff) {
+        continue;
+      }
+      this.scene.remove(puff.mesh);
+      puff.mesh.geometry.dispose();
+      puff.mesh.material.dispose();
+    }
+  }
+
+  private spawnSmokePuff(origin: THREE.Vector3, missileDirection: THREE.Vector3): void {
+    const material = new THREE.MeshBasicMaterial({
+      color: "#d6d3ce",
+      transparent: true,
+      opacity: 0.36,
+      depthWrite: false
+    });
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(1.6 + Math.random() * 1.2, 8, 6), material);
+    const lateral = new THREE.Vector3((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4);
+    mesh.position.copy(origin).add(lateral.multiplyScalar(0.45));
+    mesh.renderOrder = -1;
+    this.scene.add(mesh);
+
+    this.smokePuffs.push({
+      mesh,
+      velocity: missileDirection.clone().multiplyScalar(-6).add(lateral.multiplyScalar(0.7)),
+      age: 0,
+      life: 1.7 + Math.random() * 0.55,
+      startScale: 1
+    });
   }
 
   private updateExplosions(now: number, dt: number): void {

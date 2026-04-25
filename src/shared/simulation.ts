@@ -4,6 +4,12 @@ import {
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
   BULLET_TTL_SECONDS,
+  CRUISE_THROTTLE,
+  FLARE_COOLDOWN_SECONDS,
+  FLARE_AMMO_PER_ROUND,
+  FLARE_DECOY_RANGE,
+  FLARE_SPEED,
+  FLARE_TTL_SECONDS,
   GUN_COOLDOWN_SECONDS,
   GUN_DAMAGE,
   GUN_HEAT_DECAY_PER_SECOND,
@@ -14,10 +20,13 @@ import {
   MIN_ALTITUDE,
   MIN_SPEED,
   MISSILE_COOLDOWN_SECONDS,
+  MISSILE_AMMO_PER_ROUND,
   MISSILE_DAMAGE,
   MISSILE_HIT_RADIUS,
+  MISSILE_LOCK_BREAK_DOT,
   MISSILE_LOCK_DOT,
   MISSILE_LOCK_RANGE,
+  MISSILE_LOCK_SECONDS,
   MISSILE_SPEED,
   MISSILE_TTL_SECONDS,
   MISSILE_TURN_RATE,
@@ -26,20 +35,23 @@ import {
   RESPAWN_MS,
   ROLL_RATE,
   ROUND_MS,
-  THROTTLE_ACCELERATION,
   TURN_RATE
 } from "./constants.js";
 import {
   add,
+  applyQuaternion,
   clamp,
   cloneVec3,
   distance,
   dot,
   forwardVector,
   horizontalLength,
-  lerp,
   lerpAngle,
   normalize,
+  multiplyQuaternions,
+  quaternionFromAxisAngle,
+  quaternionFromRotation,
+  rotationFromQuaternion,
   sanitizeAxis,
   sanitizeBoolean,
   scale,
@@ -57,6 +69,7 @@ export const neutralInput = (timestamp = 0): InputFrame => ({
   roll: 0,
   fireGun: false,
   fireMissile: false,
+  fireFlare: false,
   afterburner: false,
   timestamp
 });
@@ -70,6 +83,7 @@ export function sanitizeInput(input: Partial<InputFrame> | undefined, fallbackSe
     roll: sanitizeAxis(input?.roll),
     fireGun: sanitizeBoolean(input?.fireGun),
     fireMissile: sanitizeBoolean(input?.fireMissile),
+    fireFlare: sanitizeBoolean(input?.fireFlare),
     afterburner: sanitizeBoolean(input?.afterburner),
     timestamp: typeof input?.timestamp === "number" && Number.isFinite(input.timestamp) ? input.timestamp : 0
   };
@@ -100,13 +114,19 @@ export function createPlayer(id: string, name: string, index = 0, now = Date.now
     position: spawn.position,
     velocity: { x: 0, y: 0, z: MIN_SPEED },
     rotation: spawn.rotation,
-    throttle: 0.45,
+    orientation: quaternionFromRotation(spawn.rotation),
+    throttle: CRUISE_THROTTLE,
     health: PLAYER_HEALTH,
     score: 0,
     deaths: 0,
     gunHeat: 0,
     gunCooldown: 0,
+    missilesRemaining: MISSILE_AMMO_PER_ROUND,
+    flaresRemaining: FLARE_AMMO_PER_ROUND,
     missileCooldown: 0,
+    flareCooldown: 0,
+    missileLockProgress: 0,
+    missileLockAcquired: false,
     respawnAt: 0,
     lastInputSeq: 0,
     input: neutralInput(now)
@@ -142,13 +162,18 @@ export function resetPlayerForRound(player: PlayerState, index: number, now: num
   player.position = cloneVec3(spawn.position);
   player.velocity = scale(forwardVector(spawn.rotation), MIN_SPEED);
   player.rotation = { ...spawn.rotation };
-  player.throttle = 0.45;
+  player.orientation = quaternionFromRotation(spawn.rotation);
+  player.throttle = CRUISE_THROTTLE;
   player.health = PLAYER_HEALTH;
   player.score = 0;
   player.deaths = 0;
   player.gunHeat = 0;
   player.gunCooldown = 0;
+  player.missilesRemaining = MISSILE_AMMO_PER_ROUND;
+  player.flaresRemaining = FLARE_AMMO_PER_ROUND;
   player.missileCooldown = 0;
+  player.flareCooldown = 0;
+  clearMissileLock(player);
   player.respawnAt = 0;
   player.input = neutralInput(now);
   player.lastInputSeq = 0;
@@ -221,26 +246,49 @@ export function spawnForIndex(index: number): { position: Vec3; rotation: { pitc
 function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: number, events: CombatEvent[]): void {
   player.gunCooldown = Math.max(0, player.gunCooldown - dt);
   player.missileCooldown = Math.max(0, player.missileCooldown - dt);
+  player.flareCooldown = Math.max(0, player.flareCooldown - dt);
   player.gunHeat = Math.max(0, player.gunHeat - GUN_HEAT_DECAY_PER_SECOND * dt);
 
-  player.throttle = clamp(player.throttle + player.input.thrust * THROTTLE_ACCELERATION * dt, 0, 1);
-  player.rotation.pitch = clamp(player.rotation.pitch + player.input.pitch * TURN_RATE * dt, -1.05, 1.05);
-  player.rotation.yaw += player.input.yaw * TURN_RATE * dt;
-  player.rotation.roll = clamp(lerp(player.rotation.roll, player.input.roll, dt * ROLL_RATE), -1, 1);
+  const localPitchDelta = player.input.pitch * TURN_RATE * dt;
+  let orientation = player.orientation ?? quaternionFromRotation(player.rotation);
+  const localYawDelta = player.input.yaw * 0.45 * TURN_RATE * dt;
+  const localRollDelta = player.input.roll * ROLL_RATE * dt;
 
-  const targetMax = player.input.afterburner ? AFTERBURNER_SPEED : MAX_SPEED;
-  const speed = lerp(MIN_SPEED, targetMax, player.throttle);
-  const forward = forwardVector(player.rotation);
+  if (localYawDelta !== 0) {
+    const up = applyQuaternion({ x: 0, y: 1, z: 0 }, orientation);
+    orientation = multiplyQuaternions(quaternionFromAxisAngle(up, localYawDelta), orientation);
+  }
+
+  if (localPitchDelta !== 0) {
+    const right = applyQuaternion({ x: 1, y: 0, z: 0 }, orientation);
+    orientation = multiplyQuaternions(quaternionFromAxisAngle(right, -localPitchDelta), orientation);
+  }
+
+  if (localRollDelta !== 0) {
+    const forwardAxis = applyQuaternion({ x: 0, y: 0, z: 1 }, orientation);
+    orientation = multiplyQuaternions(quaternionFromAxisAngle(forwardAxis, -localRollDelta), orientation);
+  }
+
+  player.orientation = orientation;
+  player.rotation = rotationFromQuaternion(orientation);
+
+  const speed = player.input.afterburner ? AFTERBURNER_SPEED : MAX_SPEED;
+  const forward = playerForward(player);
   player.velocity = scale(forward, speed);
   player.position = add(player.position, scale(player.velocity, dt));
   enforceArenaBounds(player, dt);
+  updateMissileLock(room, player, dt);
 
   if (player.input.fireGun && player.gunCooldown <= 0 && player.gunHeat < GUN_HEAT_MAX) {
     fireGun(room, player, now, events);
   }
 
-  if (player.input.fireMissile && player.missileCooldown <= 0) {
+  if (player.input.fireMissile && player.missileCooldown <= 0 && player.missilesRemaining > 0) {
     fireMissile(room, player, now, events);
+  }
+
+  if (player.input.fireFlare && player.flareCooldown <= 0 && player.flaresRemaining > 0) {
+    fireFlare(room, player, now, events);
   }
 }
 
@@ -253,19 +301,29 @@ function enforceArenaBounds(player: PlayerState, dt: number): void {
     player.position.x *= scaleBack;
     player.position.z *= scaleBack;
     const centerYaw = Math.atan2(-player.position.x, -player.position.z);
-    player.rotation.yaw = lerpAngle(player.rotation.yaw, centerYaw, dt * 2.6);
+    const nextYaw = lerpAngle(player.rotation.yaw, centerYaw, dt * 2.6);
+    const yawDelta = nextYaw - player.rotation.yaw;
+    player.orientation = multiplyQuaternions(
+      quaternionFromAxisAngle({ x: 0, y: 1, z: 0 }, yawDelta),
+      player.orientation ?? quaternionFromRotation(player.rotation)
+    );
+    player.rotation = rotationFromQuaternion(player.orientation);
   }
 }
 
+function playerForward(player: PlayerState): Vec3 {
+  return normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, player.orientation ?? quaternionFromRotation(player.rotation)));
+}
+
 function fireGun(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {
-  const forward = forwardVector(player.rotation);
+  const forward = playerForward(player);
   const id = `${player.id}-b-${now}-${Math.random().toString(36).slice(2, 7)}`;
   room.projectiles[id] = {
     id,
     type: "bullet",
     ownerId: player.id,
     position: add(player.position, scale(forward, 28)),
-    velocity: add(player.velocity, scale(forward, BULLET_SPEED)),
+    velocity: scale(forward, BULLET_SPEED),
     ttl: BULLET_TTL_SECONDS,
     damage: GUN_DAMAGE,
     createdAt: now
@@ -276,30 +334,99 @@ function fireGun(room: RoomState, player: PlayerState, now: number, events: Comb
 }
 
 function fireMissile(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {
-  const target = findMissileTarget(room, player);
-  if (!target) {
-    return;
+  const target =
+    player.missileLockAcquired && player.missileLockTargetId
+      ? room.players[player.missileLockTargetId]
+      : undefined;
+  const lockedTarget = target?.status === "alive" ? target : undefined;
+
+  if (player.missileLockTargetId && !lockedTarget) {
+    clearMissileLock(player);
   }
 
-  const forward = forwardVector(player.rotation);
+  const forward = playerForward(player);
   const id = `${player.id}-m-${now}-${Math.random().toString(36).slice(2, 7)}`;
   room.projectiles[id] = {
     id,
     type: "missile",
     ownerId: player.id,
-    targetId: target.id,
+    targetId: lockedTarget?.id,
+    targetType: lockedTarget ? "player" : undefined,
     position: add(player.position, scale(forward, 35)),
     velocity: scale(forward, MISSILE_SPEED),
     ttl: MISSILE_TTL_SECONDS,
     damage: MISSILE_DAMAGE,
     createdAt: now
   };
+  player.missilesRemaining = Math.max(0, player.missilesRemaining - 1);
   player.missileCooldown = MISSILE_COOLDOWN_SECONDS;
+  clearMissileLock(player);
   events.push({ type: "launch", roomId: room.id, playerId: player.id, weapon: "missile" });
 }
 
-function findMissileTarget(room: RoomState, player: PlayerState): PlayerState | undefined {
-  const forward = forwardVector(player.rotation);
+function fireFlare(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {
+  const forward = playerForward(player);
+  const id = `${player.id}-f-${now}-${Math.random().toString(36).slice(2, 7)}`;
+  room.projectiles[id] = {
+    id,
+    type: "flare",
+    ownerId: player.id,
+    position: add(player.position, scale(forward, -24)),
+    velocity: add(scale(player.velocity, 0.35), scale(forward, -FLARE_SPEED)),
+    ttl: FLARE_TTL_SECONDS,
+    damage: 0,
+    createdAt: now
+  };
+  player.flaresRemaining = Math.max(0, player.flaresRemaining - 1);
+  player.flareCooldown = FLARE_COOLDOWN_SECONDS;
+  events.push({ type: "launch", roomId: room.id, playerId: player.id, weapon: "flare" });
+}
+
+function updateMissileLock(room: RoomState, player: PlayerState, dt: number): void {
+  const currentTarget =
+    player.missileLockTargetId && isLockValid(room, player, player.missileLockTargetId, MISSILE_LOCK_BREAK_DOT)
+      ? room.players[player.missileLockTargetId]
+      : undefined;
+  const target = currentTarget ?? findMissileLockCandidate(room, player, MISSILE_LOCK_DOT);
+
+  if (!target) {
+    clearMissileLock(player);
+    return;
+  }
+
+  if (target.id !== player.missileLockTargetId) {
+    player.missileLockTargetId = target.id;
+    player.missileLockProgress = 0;
+    player.missileLockAcquired = false;
+  }
+
+  player.missileLockProgress = clamp(player.missileLockProgress + dt / MISSILE_LOCK_SECONDS, 0, 1);
+  player.missileLockAcquired = player.missileLockProgress >= 1;
+}
+
+function clearMissileLock(player: PlayerState): void {
+  player.missileLockTargetId = undefined;
+  player.missileLockProgress = 0;
+  player.missileLockAcquired = false;
+}
+
+function isLockValid(room: RoomState, player: PlayerState, targetId: string, requiredDot: number): boolean {
+  const target = room.players[targetId];
+  if (!target || target.id === player.id || target.status !== "alive") {
+    return false;
+  }
+
+  const offset = subtract(target.position, player.position);
+  const range = distance(target.position, player.position);
+  if (range > MISSILE_LOCK_RANGE) {
+    return false;
+  }
+
+  return dot(playerForward(player), normalize(offset)) >= requiredDot;
+}
+
+function findMissileLockCandidate(room: RoomState, player: PlayerState, requiredDot: number): PlayerState | undefined {
+  const forward = playerForward(player);
 
   return Object.values(room.players)
     .filter((candidate) => candidate.id !== player.id && candidate.status === "alive")
@@ -309,7 +436,7 @@ function findMissileTarget(room: RoomState, player: PlayerState): PlayerState | 
       const lock = dot(forward, normalize(offset));
       return { candidate, range, lock };
     })
-    .filter(({ range, lock }) => range <= MISSILE_LOCK_RANGE && lock >= MISSILE_LOCK_DOT)
+    .filter(({ range, lock }) => range <= MISSILE_LOCK_RANGE && lock >= requiredDot)
     .sort((a, b) => b.lock - a.lock || a.range - b.range)[0]?.candidate;
 }
 
@@ -323,9 +450,15 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
     }
 
     if (projectile.type === "missile" && projectile.targetId) {
-      const target = room.players[projectile.targetId];
-      if (target?.status === "alive") {
-        const desired = scale(normalize(subtract(target.position, projectile.position)), MISSILE_SPEED);
+      const flare = findMissileFlareTarget(room, projectile);
+      if (flare) {
+        projectile.targetId = flare.id;
+        projectile.targetType = "flare";
+      }
+
+      const targetPosition = getMissileTargetPosition(room, projectile);
+      if (targetPosition) {
+        const desired = scale(normalize(subtract(targetPosition, projectile.position)), MISSILE_SPEED);
         projectile.velocity = scale(normalize(add(scale(projectile.velocity, 1 - clamp(MISSILE_TURN_RATE * dt, 0, 1)), scale(desired, clamp(MISSILE_TURN_RATE * dt, 0, 1)))), MISSILE_SPEED);
       }
     }
@@ -336,12 +469,37 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
       return;
     }
 
-    applyDamage(room, projectile.ownerId, hit.id, projectile.damage, projectile.type, now, events);
+    applyDamage(room, projectile.ownerId, hit.id, projectile.damage, projectile.type === "missile" ? "missile" : "bullet", now, events);
     delete room.projectiles[projectile.id];
   });
 }
 
+function findMissileFlareTarget(room: RoomState, missile: ProjectileState): ProjectileState | undefined {
+  return Object.values(room.projectiles)
+    .filter((projectile) => projectile.type === "flare" && projectile.ownerId !== missile.ownerId)
+    .map((flare) => ({ flare, range: distance(flare.position, missile.position) }))
+    .filter(({ range }) => range <= FLARE_DECOY_RANGE)
+    .sort((a, b) => a.range - b.range)[0]?.flare;
+}
+
+function getMissileTargetPosition(room: RoomState, missile: ProjectileState): Vec3 | undefined {
+  if (!missile.targetId) {
+    return undefined;
+  }
+
+  if (missile.targetType === "flare") {
+    return room.projectiles[missile.targetId]?.position;
+  }
+
+  const target = room.players[missile.targetId];
+  return target?.status === "alive" ? target.position : undefined;
+}
+
 function findProjectileHit(room: RoomState, projectile: ProjectileState): PlayerState | undefined {
+  if (projectile.type === "flare") {
+    return undefined;
+  }
+
   const radius = projectile.type === "missile" ? MISSILE_HIT_RADIUS : BULLET_HIT_RADIUS;
 
   return Object.values(room.players).find((player) => {
@@ -392,12 +550,15 @@ function respawnPlayer(room: RoomState, player: PlayerState, index: number, now:
   player.status = "alive";
   player.position = cloneVec3(spawn.position);
   player.rotation = { ...spawn.rotation };
-  player.velocity = scale(forwardVector(spawn.rotation), MIN_SPEED);
-  player.throttle = 0.45;
+  player.orientation = quaternionFromRotation(spawn.rotation);
+  player.velocity = scale(playerForward(player), MIN_SPEED);
+  player.throttle = CRUISE_THROTTLE;
   player.health = PLAYER_HEALTH;
   player.gunHeat = 0;
   player.gunCooldown = 0;
   player.missileCooldown = Math.min(player.missileCooldown, 1);
+  player.flareCooldown = 0;
+  clearMissileLock(player);
   player.respawnAt = 0;
   player.input = neutralInput(now);
 }

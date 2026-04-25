@@ -10,9 +10,17 @@ export type Rotation = {
   roll: number;
 };
 
+export type Quaternion = {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+};
+
 export type PlayerStatus = "lobby" | "alive" | "dead";
 export type RoomPhase = "lobby" | "playing" | "ended";
-export type ProjectileType = "bullet" | "missile";
+export type ProjectileType = "bullet" | "missile" | "flare";
+export type MissileTargetType = "player" | "flare";
 
 export type InputFrame = {
   seq: number;
@@ -22,6 +30,7 @@ export type InputFrame = {
   roll: number;
   fireGun: boolean;
   fireMissile: boolean;
+  fireFlare: boolean;
   afterburner: boolean;
   timestamp: number;
 };
@@ -34,13 +43,20 @@ export type PlayerState = {
   position: Vec3;
   velocity: Vec3;
   rotation: Rotation;
+  orientation?: Quaternion;
   throttle: number;
   health: number;
   score: number;
   deaths: number;
   gunHeat: number;
   gunCooldown: number;
+  missilesRemaining: number;
+  flaresRemaining: number;
   missileCooldown: number;
+  flareCooldown: number;
+  missileLockTargetId?: string;
+  missileLockProgress: number;
+  missileLockAcquired: boolean;
   respawnAt: number;
   lastInputSeq: number;
   input: InputFrame;
@@ -51,6 +67,7 @@ export type ProjectileState = {
   type: ProjectileType;
   ownerId: string;
   targetId?: string;
+  targetType?: MissileTargetType;
   position: Vec3;
   velocity: Vec3;
   ttl: number;

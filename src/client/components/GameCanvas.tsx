@@ -4,19 +4,20 @@ import { DogfightScene } from "../game/DogfightScene.js";
 
 type GameCanvasProps = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
+  reticleRef: RefObject<HTMLDivElement | null>;
   sceneRef: RefObject<DogfightScene | null>;
   room?: RoomState;
   playerId: string;
 };
 
-export function GameCanvas({ canvasRef, sceneRef, room, playerId }: GameCanvasProps) {
+export function GameCanvas({ canvasRef, reticleRef, sceneRef, room, playerId }: GameCanvasProps) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) {
       return;
     }
 
-    const scene = new DogfightScene(canvas);
+    const scene = new DogfightScene(canvas, reticleRef.current);
     let frame = 0;
     sceneRef.current = scene;
 
@@ -31,7 +32,7 @@ export function GameCanvas({ canvasRef, sceneRef, room, playerId }: GameCanvasPr
       scene.destroy();
       sceneRef.current = null;
     };
-  }, [canvasRef, sceneRef]);
+  }, [canvasRef, reticleRef, sceneRef]);
 
   useEffect(() => {
     if (room) {

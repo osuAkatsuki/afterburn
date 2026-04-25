@@ -1,5 +1,5 @@
 import type { PlayerState, RoomState } from "../../shared/types.js";
-import { altitudeLabel, missileReadyRatio, roundTimeLabel, speedLabel } from "../utils/format.js";
+import { altitudeLabel, flareReadyRatio, missileReadyRatio, roundTimeLabel, speedLabel } from "../utils/format.js";
 
 type HudProps = {
   room?: RoomState;
@@ -27,8 +27,16 @@ export function Hud({ room, localPlayer }: HudProps) {
           <meter min="0" max="1" value={localPlayer?.gunHeat ?? 0} />
         </label>
         <label>
-          <span>Missile</span>
+          <span>MSL {localPlayer?.missilesRemaining ?? 0}</span>
           <meter min="0" max="1" value={missileReadyRatio(localPlayer)} />
+        </label>
+        <label>
+          <span>Lock</span>
+          <meter min="0" max="1" value={localPlayer?.missileLockProgress ?? 0} />
+        </label>
+        <label>
+          <span>FLR {localPlayer?.flaresRemaining ?? 0}</span>
+          <meter min="0" max="1" value={flareReadyRatio(localPlayer)} />
         </label>
       </div>
 

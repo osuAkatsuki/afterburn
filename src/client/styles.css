@@ -127,7 +127,7 @@ input:focus {
 
 .bars label {
   display: grid;
-  grid-template-columns: 54px 1fr;
+  grid-template-columns: 64px 1fr;
   align-items: center;
   gap: 8px;
 }
@@ -141,19 +141,47 @@ meter {
   font-variant-numeric: tabular-nums;
 }
 
+.aim-overlay {
+  --reticle-color: rgb(248 250 252 / 82%);
+  --reticle-glow: rgb(248 250 252 / 22%);
+  --reticle-x: 50%;
+  --reticle-y: 50%;
+  --target-x: 50%;
+  --target-y: 50%;
+  position: fixed;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.aim-overlay[data-visible="true"] {
+  opacity: 1;
+}
+
+.aim-overlay[data-lock="locking"] {
+  --reticle-color: rgb(251 191 36 / 90%);
+  --reticle-glow: rgb(251 191 36 / 34%);
+}
+
+.aim-overlay[data-lock="locked"] {
+  --reticle-color: rgb(248 113 113 / 94%);
+  --reticle-glow: rgb(248 113 113 / 42%);
+}
+
 .reticle {
   position: fixed;
-  left: 50%;
-  top: 50%;
+  left: var(--reticle-x, 50%);
+  top: var(--reticle-y, 50%);
   width: 72px;
   height: 72px;
   transform: translate(-50%, -50%);
-  pointer-events: none;
 }
 
 .reticle span {
   position: absolute;
-  background: rgb(248 250 252 / 74%);
+  background: var(--reticle-color);
+  box-shadow: 0 0 14px var(--reticle-glow);
 }
 
 .reticle span:nth-child(1),
@@ -184,6 +212,172 @@ meter {
 
 .reticle span:nth-child(4) {
   bottom: 0;
+}
+
+.reticle b {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  color: var(--reticle-color);
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 12px var(--reticle-glow);
+  white-space: nowrap;
+}
+
+.aim-overlay[data-lock="locking"] .reticle b::before {
+  content: "LOCKING";
+}
+
+.aim-overlay[data-lock="locked"] .reticle b::before {
+  content: "LOCK";
+}
+
+.lock-target {
+  position: fixed;
+  left: var(--target-x, 50%);
+  top: var(--target-y, 50%);
+  width: 62px;
+  height: 62px;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+}
+
+.aim-overlay[data-target-visible="true"] .lock-target {
+  opacity: 1;
+}
+
+.lock-target i {
+  position: absolute;
+  width: 17px;
+  height: 17px;
+  border-color: var(--reticle-color);
+  filter: drop-shadow(0 0 8px var(--reticle-glow));
+}
+
+.lock-target i:nth-child(1) {
+  left: 0;
+  top: 0;
+  border-left: 2px solid;
+  border-top: 2px solid;
+}
+
+.lock-target i:nth-child(2) {
+  right: 0;
+  top: 0;
+  border-right: 2px solid;
+  border-top: 2px solid;
+}
+
+.lock-target i:nth-child(3) {
+  right: 0;
+  bottom: 0;
+  border-right: 2px solid;
+  border-bottom: 2px solid;
+}
+
+.lock-target i:nth-child(4) {
+  left: 0;
+  bottom: 0;
+  border-left: 2px solid;
+  border-bottom: 2px solid;
+}
+
+.combat-feedback {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.hit-confirmations {
+  position: fixed;
+  left: 50%;
+  top: calc(50% + 58px);
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+}
+
+.hit-confirmation {
+  min-width: 112px;
+  padding: 5px 12px;
+  border: 1px solid rgb(253 224 71 / 60%);
+  border-radius: 4px;
+  color: #fef08a;
+  background: rgb(2 6 23 / 48%);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgb(253 224 71 / 48%);
+  animation: hit-confirm 820ms ease-out forwards;
+}
+
+.hit-confirmation.kill {
+  border-color: rgb(248 113 113 / 72%);
+  color: #fecaca;
+  text-shadow: 0 0 16px rgb(248 113 113 / 58%);
+}
+
+.damage-flash {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fecaca;
+  background:
+    radial-gradient(circle at center, transparent 42%, rgb(127 29 29 / 42%) 100%),
+    rgb(127 29 29 / 10%);
+  animation: damage-flash 820ms ease-out forwards;
+}
+
+.damage-flash span {
+  margin-top: 120px;
+  padding: 6px 12px;
+  border: 1px solid rgb(248 113 113 / 54%);
+  border-radius: 4px;
+  background: rgb(127 29 29 / 44%);
+  font-size: 0.85rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 16px rgb(248 113 113 / 62%);
+}
+
+@keyframes hit-confirm {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.92);
+  }
+
+  18% {
+    opacity: 1;
+    transform: translateY(0) scale(1.05);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(1);
+  }
+}
+
+@keyframes damage-flash {
+  0% {
+    opacity: 0;
+  }
+
+  16% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
 }
 
 .radar {
