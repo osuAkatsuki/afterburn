@@ -130,6 +130,8 @@ describe("GameRoomManager", () => {
     expect(rejoined.room.players["client-a"].score).toBe(2);
 
     manager.setInput("socket-b", { seq: 6, roll: -1 });
+    expect(manager.getRoom("RECON")?.players["client-a"].lastInputSeq).toBe(0);
+    manager.tickRooms(1333);
     expect(manager.getRoom("RECON")?.players["client-a"].lastInputSeq).toBe(6);
   });
 
@@ -160,6 +162,27 @@ describe("GameRoomManager", () => {
 
     manager.startRoom("host");
     manager.setInput("host", { seq: 1, thrust: 1 });
+    expect(manager.getRoom("INPUT")?.players.host.lastInputSeq).toBe(0);
+    manager.tickRooms();
     expect(manager.getRoom("INPUT")?.players.host.lastInputSeq).toBe(1);
+  });
+
+  it("acks inputs only after processing them in server ticks", () => {
+    const manager = new GameRoomManager(ids("QUEUE"));
+    manager.createRoom("host", "Host", 1000);
+    manager.startRoom("host", 1100);
+
+    manager.setInput("host", { seq: 1, roll: 1 });
+    manager.setInput("host", { seq: 2, roll: -1 });
+    expect(manager.getRoom("QUEUE")?.players.host.lastInputSeq).toBe(0);
+
+    manager.tickRooms(1133);
+    expect(manager.getRoom("QUEUE")?.players.host.lastInputSeq).toBe(1);
+    expect(manager.getRoom("QUEUE")?.players.host.input.roll).toBe(1);
+
+    manager.setInput("host", { seq: 1, roll: 0 });
+    manager.tickRooms(1166);
+    expect(manager.getRoom("QUEUE")?.players.host.lastInputSeq).toBe(2);
+    expect(manager.getRoom("QUEUE")?.players.host.input.roll).toBe(-1);
   });
 });

@@ -6,6 +6,7 @@ import {
   createRoomState,
   neutralInput,
   resetPlayerForRound,
+  sanitizeInput,
   setPlayerInput,
   startRound,
   stepRoom
@@ -28,6 +29,7 @@ export class GameRoomManager {
   private readonly socketPlayers = new Map<string, string>();
   private readonly playerSockets = new Map<string, string>();
   private readonly disconnectedAt = new Map<string, number>();
+  private readonly inputQueues = new Map<string, InputFrame[]>();
   private tick = 0;
 
   constructor(private readonly makeRoomId = defaultRoomId) {}
@@ -113,6 +115,7 @@ export class GameRoomManager {
     }
 
     startRound(room, now);
+    this.clearRoomInputQueues(room);
     return { ok: true, room, playerId };
   }
 
@@ -124,7 +127,7 @@ export class GameRoomManager {
       return;
     }
 
-    setPlayerInput(player, input);
+    this.queueInput(player.id, player.lastInputSeq, input);
   }
 
   disconnectSocket(socketId: string, now = Date.now()): RoomState[] {
@@ -144,6 +147,7 @@ export class GameRoomManager {
 
     this.disconnectedAt.set(playerId, now);
     player.input = neutralInput(now);
+    this.inputQueues.delete(playerId);
     room.now = now;
     return [room];
   }
@@ -158,6 +162,7 @@ export class GameRoomManager {
     delete room.players[playerId];
     this.playerRooms.delete(playerId);
     this.disconnectedAt.delete(playerId);
+    this.inputQueues.delete(playerId);
     const socketId = this.playerSockets.get(playerId);
     if (socketId) {
       this.socketPlayers.delete(socketId);
@@ -191,6 +196,9 @@ export class GameRoomManager {
       }
 
       const wasPlaying = room.phase === "playing";
+      if (wasPlaying) {
+        this.consumeQueuedInputs(room);
+      }
       const events = stepRoom(room, 1 / TICK_RATE, now);
       const ended = wasPlaying && room.phase === "ended";
 
@@ -240,6 +248,61 @@ export class GameRoomManager {
     this.playerSockets.set(playerId, socketId);
     this.playerRooms.set(playerId, roomId);
     this.disconnectedAt.delete(playerId);
+  }
+
+  private queueInput(playerId: string, lastProcessedSeq: number, input: Partial<InputFrame>): void {
+    const sanitized = sanitizeInput(input, 0);
+    if (sanitized.seq <= lastProcessedSeq) {
+      return;
+    }
+
+    const queue = this.inputQueues.get(playerId) ?? [];
+    const lastQueued = queue.at(-1);
+    if (lastQueued && sanitized.seq < lastQueued.seq) {
+      return;
+    }
+
+    if (lastQueued && sanitized.seq === lastQueued.seq) {
+      queue[queue.length - 1] = sanitized;
+    } else {
+      queue.push(sanitized);
+    }
+
+    while (queue.length > 96) {
+      queue.shift();
+    }
+
+    this.inputQueues.set(playerId, queue);
+  }
+
+  private consumeQueuedInputs(room: RoomState): void {
+    Object.values(room.players).forEach((player) => {
+      if (player.status !== "alive") {
+        return;
+      }
+
+      const queue = this.inputQueues.get(player.id);
+      if (!queue || queue.length === 0) {
+        return;
+      }
+
+      while (queue.length > 0 && queue[0].seq <= player.lastInputSeq) {
+        queue.shift();
+      }
+
+      const nextInput = queue.shift();
+      if (nextInput) {
+        setPlayerInput(player, nextInput);
+      }
+
+      if (queue.length === 0) {
+        this.inputQueues.delete(player.id);
+      }
+    });
+  }
+
+  private clearRoomInputQueues(room: RoomState): void {
+    Object.keys(room.players).forEach((playerId) => this.inputQueues.delete(playerId));
   }
 
   private resolvePlayerId(socketOrPlayerId: string): string {
