@@ -8,6 +8,11 @@ type TerrainQaState = {
   stats?: SceneDebugStats;
 };
 
+type CaptureSize = {
+  width: number;
+  height: number;
+};
+
 const DEFAULT_POSE: FreeCameraPose = {
   position: { x: 0, y: 980, z: -1800 },
   target: { x: -220, y: 180, z: -140 }
@@ -27,6 +32,8 @@ export function TerrainQaCanvas() {
   const sceneRef = useRef<DogfightScene | null>(null);
   const statsRef = useRef<SceneDebugStats | undefined>(undefined);
   const poseRef = useRef<FreeCameraPose>(parseTerrainQaPose(window.location.search));
+  const captureSize = parseCaptureSize(window.location.search);
+  const captureStyle = captureSize ? { width: `${captureSize.width}px`, height: `${captureSize.height}px` } : undefined;
   const [state, setState] = useState<TerrainQaState>(() => {
     return {
       name: new URLSearchParams(window.location.search).get("qaName") ?? "terrain-qa",
@@ -80,8 +87,8 @@ export function TerrainQaCanvas() {
   }, []);
 
   return (
-    <div className="terrain-qa-shell">
-      <canvas className="viewport" ref={canvasRef} />
+    <div className="terrain-qa-shell" style={captureStyle}>
+      <canvas className="viewport" ref={canvasRef} style={captureStyle} />
       {new URLSearchParams(window.location.search).get("overlay") !== "0" && (
         <aside className="terrain-qa-overlay">
           <strong>{state.name}</strong>
@@ -105,6 +112,17 @@ function parseTerrainQaPose(search: string): FreeCameraPose {
     position: parseVec3(params.get("camera"), DEFAULT_POSE.position),
     target: parseVec3(params.get("target"), DEFAULT_POSE.target)
   };
+}
+
+function parseCaptureSize(search: string): CaptureSize | undefined {
+  const params = new URLSearchParams(search);
+  const width = Number(params.get("captureWidth"));
+  const height = Number(params.get("captureHeight"));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return undefined;
+  }
+
+  return { width, height };
 }
 
 function parseVec3(value: string | null, fallback: Vec3): Vec3 {

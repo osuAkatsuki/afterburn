@@ -13,9 +13,9 @@ type TerrainClipmapConfig = {
 };
 
 const TERRAIN_LEVELS: TerrainClipmapConfig[] = [
-  { name: "near", halfSize: 720, innerHalfSize: 0, step: 30, snapStep: 180, yOffset: 0 },
-  { name: "mid", halfSize: 2300, innerHalfSize: 660, step: 90, snapStep: 540, yOffset: -0.18 },
-  { name: "far", halfSize: 5700, innerHalfSize: 2100, step: 240, snapStep: 1440, yOffset: -0.45 }
+  { name: "near", halfSize: 960, innerHalfSize: 0, step: 20, snapStep: 120, yOffset: 0 },
+  { name: "mid", halfSize: 3000, innerHalfSize: 860, step: 70, snapStep: 420, yOffset: -0.06 },
+  { name: "far", halfSize: 7000, innerHalfSize: 2800, step: 190, snapStep: 1140, yOffset: -0.12 }
 ];
 
 const TERRAIN_SAMPLE_CACHE_LIMIT = 120_000;
@@ -35,6 +35,7 @@ const COLOR_SAND = new THREE.Color(TERRAIN_COLORS.beach);
 const COLOR_DRY_GRASS = new THREE.Color("#6f7745");
 const COLOR_LUSH_GRASS = new THREE.Color("#356f43");
 const COLOR_HIGH_GRASS = new THREE.Color(TERRAIN_COLORS.highland);
+const COLOR_DARK_VEGETATION = new THREE.Color("#294936");
 const COLOR_ROCK = new THREE.Color(TERRAIN_COLORS.mountain);
 const COLOR_DARK_ROCK = new THREE.Color("#454942");
 const COLOR_SNOW = new THREE.Color(TERRAIN_COLORS.snow);
@@ -137,6 +138,8 @@ class TerrainClipmapLevel {
     const geometry = this.mesh.geometry;
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.color.needsUpdate = true;
+    geometry.computeVertexNormals();
+    geometry.attributes.normal.needsUpdate = true;
   }
 
   dispose(): void {
@@ -206,7 +209,7 @@ function terrainColor(sample: TerrainSample): THREE.Color {
     sample.kind === "ocean"
       ? COLOR_DEEP_WATER.clone().lerp(COLOR_SHALLOW_WATER, THREE.MathUtils.clamp(sample.land / 0.34, 0, 1))
       : landColor(sample);
-  const broadShade = THREE.MathUtils.clamp(0.92 + sample.detail * 0.09 + sample.slope * 0.18, 0.72, 1.24);
+  const broadShade = THREE.MathUtils.clamp(0.94 + sample.detail * 0.12 + sample.slope * 0.12, 0.72, 1.22);
   return color.multiplyScalar(broadShade);
 }
 
@@ -217,7 +220,8 @@ function landColor(sample: TerrainSample): THREE.Color {
 
   const grass = COLOR_DRY_GRASS.clone().lerp(COLOR_LUSH_GRASS, sample.moisture).lerp(COLOR_HIGH_GRASS, sample.height / 520);
   const rock = COLOR_ROCK.clone().lerp(COLOR_DARK_ROCK, THREE.MathUtils.clamp(sample.slope * 0.6, 0, 1));
-  const terrain = grass.lerp(rock, THREE.MathUtils.clamp(sample.rock, 0, 0.92));
+  const vegetation = THREE.MathUtils.clamp(sample.moisture * 0.28 + Math.max(0, -sample.detail) * 0.16 - sample.rock * 0.18, 0, 0.34);
+  const terrain = grass.lerp(COLOR_DARK_VEGETATION, vegetation).lerp(rock, THREE.MathUtils.clamp(sample.rock, 0, 0.92));
   return terrain.lerp(COLOR_SNOW, THREE.MathUtils.clamp(sample.snow, 0, 1));
 }
 

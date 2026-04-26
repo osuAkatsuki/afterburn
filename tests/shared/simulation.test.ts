@@ -614,15 +614,18 @@ describe("shared simulation", () => {
     const room = twoPlayerRoom();
     const owner = room.players.p1;
     const victim = room.players.p2;
+    const impactX = ARENA_RADIUS * 0.75;
+    const impactZ = 0;
+    const impactTerrainY = terrainHeightAt(impactX, impactZ).height;
     owner.position = { x: -MISSILE_BLAST_RADIUS * 3, y: 160, z: 0 };
-    victim.position = { x: ARENA_RADIUS * 0.75, y: 8, z: 28 };
+    victim.position = { x: impactX, y: impactTerrainY + 30, z: 28 };
     victim.health = PLAYER_HEALTH;
 
     const missile: ProjectileState = {
       id: "terrain-missile",
       type: "missile",
       ownerId: owner.id,
-      position: { x: ARENA_RADIUS * 0.75, y: TERRAIN_COLLISION_MARGIN - 0.1, z: 0 },
+      position: { x: impactX, y: impactTerrainY + TERRAIN_COLLISION_MARGIN - 0.1, z: impactZ },
       velocity: { x: 0, y: -MISSILE_SPEED, z: 0 },
       ttl: 1,
       damage: MISSILE_DAMAGE,

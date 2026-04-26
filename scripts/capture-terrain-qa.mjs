@@ -70,7 +70,7 @@ const outDir = resolve(repoRoot, args.out ?? args.outDir ?? defaultOutDir);
 const baseUrl = normalizeBaseUrl(args.url ?? args.baseUrl ?? args["base-url"] ?? "http://localhost:3000/");
 const width = parsePositiveInt(args.width, 1600);
 const height = parsePositiveInt(args.height, 900);
-const settleMs = parsePositiveInt(args.settleMs ?? args["settle-ms"] ?? args.settle, 1800);
+const settleMs = parsePositiveInt(args.settleMs ?? args["settle-ms"] ?? args.settle, 3000);
 const overlay = args.overlay !== "0" && args.hideOverlay !== "1" && args["hide-overlay"] !== "1";
 const selectedView = args.view;
 const selectedCaptures = selectedView ? captures.filter((capture) => capture.name === selectedView) : captures;
@@ -80,6 +80,7 @@ if (selectedCaptures.length === 0) {
 }
 
 const chromePath = findChrome();
+const chromeWindow = measureChromeWindowSize(chromePath, width, height);
 let devServer;
 
 await mkdir(outDir, { recursive: true });
@@ -87,6 +88,7 @@ await rm(resolve(outDir, "chrome-profile"), { recursive: true, force: true });
 
 if (!(await isReachable(baseUrl))) {
   devServer = await startDevServer(baseUrl);
+  await delay(1800);
 }
 
 const manifest = {
@@ -101,10 +103,10 @@ const manifest = {
 
 try {
   for (const [index, capture] of selectedCaptures.entries()) {
-    const url = qaUrl(baseUrl, capture, overlay);
+    const url = qaUrl(baseUrl, capture, overlay, width, height);
     const filename = `${String(index + 1).padStart(2, "0")}-${capture.name}.png`;
     const output = resolve(outDir, filename);
-    await runChromeScreenshot(url, output, width, height, settleMs, chromePath, outDir);
+    await runChromeScreenshot(url, output, chromeWindow.width, chromeWindow.height, settleMs, chromePath, outDir);
     manifest.captures.push({ ...capture, url, filename, output });
     console.log(`Captured ${capture.name}: ${output}`);
   }
@@ -122,13 +124,15 @@ try {
   }
 }
 
-function qaUrl(baseUrl, capture, overlay) {
+function qaUrl(baseUrl, capture, overlay, width, height) {
   const url = new URL(baseUrl);
   url.searchParams.set("terrainQa", "1");
   url.searchParams.set("qaName", capture.name);
   url.searchParams.set("camera", capture.camera.join(","));
   url.searchParams.set("target", capture.target.join(","));
   url.searchParams.set("overlay", overlay ? "1" : "0");
+  url.searchParams.set("captureWidth", String(width));
+  url.searchParams.set("captureHeight", String(height));
   return url.toString();
 }
 
@@ -148,7 +152,7 @@ async function runChromeScreenshot(url, output, width, height, settleMs, chromeP
     "--force-device-scale-factor=1",
     `--user-data-dir=${resolve(outDir, "chrome-profile")}`,
     `--window-size=${width},${height}`,
-    `--timeout=${settleMs}`,
+    `--virtual-time-budget=${settleMs}`,
     `--screenshot=${output}`,
     url
   ];
@@ -252,6 +256,32 @@ function findChrome() {
   }
 
   throw new Error("Could not find Chrome. Set CHROME_BIN=/path/to/chrome and rerun npm run terrain:qa.");
+}
+
+function measureChromeWindowSize(chromePath, requestedWidth, requestedHeight) {
+  const result = spawnSync(
+    chromePath,
+    [
+      "--headless=new",
+      "--no-first-run",
+      "--no-default-browser-check",
+      `--window-size=${requestedWidth},${requestedHeight}`,
+      "--dump-dom",
+      "data:text/html,<script>document.write(window.innerWidth+'x'+window.innerHeight)</script>"
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", timeout: 5000 }
+  );
+  const match = result.stdout.match(/(\d+)x(\d+)/);
+  if (!match) {
+    return { width: requestedWidth, height: requestedHeight };
+  }
+
+  const actualWidth = Number(match[1]);
+  const actualHeight = Number(match[2]);
+  return {
+    width: requestedWidth + Math.max(0, requestedWidth - actualWidth),
+    height: requestedHeight + Math.max(0, requestedHeight - actualHeight)
+  };
 }
 
 function createGalleryHtml(manifest) {

@@ -38,9 +38,9 @@ export const TERRAIN_FIELD = {
   mountainLine: 360,
   highlandLine: 145,
   continentalMasses: [
-    { x: -280, z: -120, radiusX: 3300, radiusZ: 2450, rotation: -0.16, strength: 0.7 },
-    { x: 1380, z: -980, radiusX: 2500, radiusZ: 1600, rotation: 0.44, strength: 0.36 },
-    { x: -1820, z: 1320, radiusX: 1800, radiusZ: 1350, rotation: -0.64, strength: 0.28 },
+    { x: -180, z: -120, radiusX: 5000, radiusZ: 3400, rotation: -0.12, strength: 0.6 },
+    { x: 1540, z: -980, radiusX: 3200, radiusZ: 2100, rotation: 0.44, strength: 0.32 },
+    { x: -2060, z: 1320, radiusX: 2600, radiusZ: 1800, rotation: -0.64, strength: 0.28 },
     { x: 2240, z: 1530, radiusX: 1500, radiusZ: 1220, rotation: 0.7, strength: 0.2 }
   ] satisfies EllipticalMask[],
   waterBasins: [
@@ -53,7 +53,8 @@ export const TERRAIN_FIELD = {
   mountainRanges: [
     { x: -680, z: -160, radiusX: 460, radiusZ: 2550, rotation: -0.72, strength: 1, ridgeSharpness: 1.8 },
     { x: 720, z: -1100, radiusX: 360, radiusZ: 1750, rotation: 0.54, strength: 0.78, ridgeSharpness: 2.1 },
-    { x: 1240, z: 820, radiusX: 430, radiusZ: 1350, rotation: -0.92, strength: 0.58, ridgeSharpness: 1.55 }
+    { x: 1240, z: 820, radiusX: 430, radiusZ: 1350, rotation: -0.92, strength: 0.58, ridgeSharpness: 1.55 },
+    { x: -1760, z: 980, radiusX: 350, radiusZ: 1500, rotation: -0.24, strength: 0.46, ridgeSharpness: 1.7 }
   ] satisfies MountainRange[]
 } as const;
 
@@ -175,10 +176,10 @@ function terrainMasksAt(x: number, z: number, land: number): TerrainMasks {
 
 function terrainHeightFromMasks(land: number, masks: TerrainMasks): number {
   const beachShelf = smoothstep(TERRAIN_FIELD.oceanThreshold, TERRAIN_FIELD.beachThreshold, land) * 5.4;
-  const lowRelief = masks.coast * (18 + masks.hills * 105 + masks.valleys * 34 + masks.roughness * 22);
+  const lowRelief = masks.coast * (20 + masks.hills * 145 + masks.valleys * 42 + masks.roughness * 34 + Math.max(0, masks.detail) * 18);
   const mountainRelief =
-    masks.mountain * (140 + Math.pow(masks.ridge, 2.35) * 620 + masks.roughness * 110 + Math.max(0, masks.detail) * 38);
-  const valleyCut = masks.coast * Math.pow(masks.valleys, 2.1) * (26 + masks.mountain * 120);
+    masks.mountain * (165 + Math.pow(masks.ridge, 2.2) * 720 + masks.roughness * 145 + Math.max(0, masks.detail) * 54);
+  const valleyCut = masks.coast * Math.pow(masks.valleys, 2.1) * (32 + masks.mountain * 150);
 
   return Math.max(OCEAN_LEVEL + 0.8, OCEAN_LEVEL + beachShelf + lowRelief + mountainRelief - valleyCut);
 }
