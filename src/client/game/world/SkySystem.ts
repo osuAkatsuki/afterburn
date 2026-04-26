@@ -7,26 +7,26 @@ export class SkySystem {
   constructor(private readonly scene: THREE.Scene) {}
 
   initialize(): void {
-    this.scene.background = new THREE.Color("#8bd3ff");
-    this.scene.fog = new THREE.Fog("#8bd3ff", 900, 3800);
+    this.scene.background = new THREE.Color("#91cef7");
+    this.scene.fog = new THREE.Fog("#9bd8ff", 2200, 11500);
 
     this.skyDome = this.createSkyDome();
     this.scene.add(this.skyDome);
 
-    const hemi = new THREE.HemisphereLight("#dff6ff", "#1f5666", 1.75);
+    const hemi = new THREE.HemisphereLight("#e8f9ff", "#244c42", 1.55);
     this.scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight("#fff3c4", 3.2);
-    sun.position.set(-620, 980, -360);
+    const sun = new THREE.DirectionalLight("#fff0c6", 3.45);
+    sun.position.set(-860, 1320, -520);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     this.scene.add(sun);
 
-    for (let i = 0; i < 28; i += 1) {
+    for (let i = 0; i < 42; i += 1) {
       const cloud = this.createCloud();
       const angle = Math.random() * Math.PI * 2;
-      const radius = 400 + Math.random() * 1300;
-      cloud.position.set(Math.sin(angle) * radius, 260 + Math.random() * 420, Math.cos(angle) * radius);
+      const radius = 1200 + Math.random() * 5400;
+      cloud.position.set(Math.sin(angle) * radius, 620 + Math.random() * 820, Math.cos(angle) * radius);
       this.clouds.push(cloud);
       this.scene.add(cloud);
     }
@@ -51,13 +51,13 @@ export class SkySystem {
 
   private createSkyDome(): THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> {
     const dome = new THREE.Mesh(
-      new THREE.SphereGeometry(5200, 32, 16),
+      new THREE.SphereGeometry(14500, 48, 20),
       new THREE.ShaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
         uniforms: {
-          topColor: { value: new THREE.Color("#5eb8f2") },
-          horizonColor: { value: new THREE.Color("#bfeaff") }
+          topColor: { value: new THREE.Color("#4ca6ec") },
+          horizonColor: { value: new THREE.Color("#d6f1ff") }
         },
         vertexShader: `
           varying vec3 vWorldPosition;
@@ -84,14 +84,14 @@ export class SkySystem {
 
   private createCloud(): THREE.Group {
     const group = new THREE.Group();
-    const material = new THREE.MeshStandardMaterial({ color: "#f8fbff", roughness: 1, transparent: true, opacity: 0.72 });
-    const shadowMaterial = new THREE.MeshStandardMaterial({ color: "#d7e5ef", roughness: 1, transparent: true, opacity: 0.34 });
-    const count = 5 + Math.floor(Math.random() * 5);
+    const material = new THREE.MeshStandardMaterial({ color: "#f8fbff", roughness: 1, transparent: true, opacity: 0.64 });
+    const shadowMaterial = new THREE.MeshStandardMaterial({ color: "#cbdce8", roughness: 1, transparent: true, opacity: 0.3 });
+    const count = 7 + Math.floor(Math.random() * 7);
 
     for (let i = 0; i < count; i += 1) {
-      const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(24 + Math.random() * 26, 0), i % 3 === 0 ? shadowMaterial : material);
-      puff.position.set((i - count / 2) * 24, Math.random() * 14, (Math.random() - 0.5) * 32);
-      puff.scale.set(2.1, 0.46, 0.92);
+      const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(34 + Math.random() * 42, 0), i % 3 === 0 ? shadowMaterial : material);
+      puff.position.set((i - count / 2) * 34, Math.random() * 22, (Math.random() - 0.5) * 72);
+      puff.scale.set(3.4, 0.38, 1.25);
       group.add(puff);
     }
 

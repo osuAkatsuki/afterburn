@@ -142,6 +142,7 @@ export class DogfightScene {
     this.oceanSystem.update(now);
     this.jetRenderer.update(dt, this.state, this.localPlayerId);
     this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId), this.cameraLook);
+    this.terrainSystem.update(this.camera.position);
     this.skySystem.update(this.camera);
     this.reticleProjector.update(this.state, this.localPlayerId);
     this.combatEffects.update(now, dt, this.state);

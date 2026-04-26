@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { ARENA_RADIUS } from "../../../shared/constants.js";
-import { sampleTerrainAt, shoreDampingAt, terrainLandAt } from "../../../shared/terrainField.js";
+import { sampleTerrainAt, shoreDampingAt, TERRAIN_FIELD, terrainLandAt } from "../../../shared/terrainField.js";
 import { OCEAN_VISUAL_CONFIG } from "./oceanVisualConfig.js";
 
 type ShoreFoam = {
@@ -163,7 +163,7 @@ export class OceanSystem {
     this.shoreFoamMesh = mesh;
     this.scene.add(mesh);
 
-    const radius = ARENA_RADIUS * 0.98;
+    const radius = Math.min(TERRAIN_FIELD.renderRadius * 0.9, ARENA_RADIUS * 1.36);
     const spacing = OCEAN_VISUAL_CONFIG.shoreFoam.scanSpacing;
     for (let z = -radius; z <= radius; z += spacing) {
       for (let x = -radius; x <= radius; x += spacing) {

@@ -46,8 +46,8 @@ export const OCEAN_VISUAL_CONFIG = {
   ],
   shoreFoam: {
     patchSize: 1,
-    scanSpacing: 105,
-    maxPatchCount: 260,
+    scanSpacing: 95,
+    maxPatchCount: 420,
     minWaterLandDelta: 0.08,
     gradientStep: 42,
     color: "#d9fbff",
@@ -63,7 +63,7 @@ export const OCEAN_VISUAL_CONFIG = {
     positionY: 0.18
   },
   waterGlints: {
-    maxCount: 85,
+    maxCount: 110,
     windAngle: -0.28,
     color: "#e6fbff",
     materialOpacity: 0.08,

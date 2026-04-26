@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { OCEAN_LEVEL } from "../../src/shared/constants.js";
 import { isTerrainImpact, terrainHeightAt } from "../../src/shared/terrain.js";
-import { sampleTerrainAt, shoreDampingAt, terrainLandAt } from "../../src/shared/terrainField.js";
+import { sampleTerrainAt, shoreDampingAt, TERRAIN_FIELD, terrainLandAt } from "../../src/shared/terrainField.js";
 
 describe("procedural terrain", () => {
   it("returns deterministic samples for the same world coordinates", () => {
@@ -12,7 +12,7 @@ describe("procedural terrain", () => {
   });
 
   it("classifies ocean, beach, land, mountains, and snow from generated height", () => {
-    const ocean = sampleTerrainAt(3100, -3100);
+    const ocean = findTerrainSample((sample) => sample.kind === "ocean" && sample.land < TERRAIN_FIELD.oceanThreshold - 0.08);
     const beach = findTerrainSample((sample) => sample.kind === "beach");
     const lowland = findTerrainSample((sample) => sample.kind === "lowland");
     const mountain = findTerrainSample((sample) => sample.kind === "mountain");
@@ -27,12 +27,16 @@ describe("procedural terrain", () => {
   });
 
   it("damps ocean waves near shorelines but not in open water", () => {
-    const shoreline = findTerrainSample((sample) => sample.kind === "ocean" && terrainLandAt(sample.x, sample.z) > 0.12);
-    const openWater = sampleTerrainAt(3100, -3100);
+    const shoreline = findTerrainSample(
+      (sample) => sample.kind === "ocean" && terrainLandAt(sample.x, sample.z) > TERRAIN_FIELD.oceanThreshold - 0.08
+    );
+    const openWater = findTerrainSample(
+      (sample) => sample.kind === "ocean" && terrainLandAt(sample.x, sample.z) < TERRAIN_FIELD.oceanThreshold - 0.14
+    );
 
     expect(shoreDampingAt(shoreline.x, shoreline.z)).toBeLessThan(0.7);
     expect(openWater.kind).toBe("ocean");
-    expect(shoreDampingAt(3100, -3100)).toBeGreaterThan(0.9);
+    expect(shoreDampingAt(openWater.x, openWater.z)).toBeGreaterThan(0.9);
   });
 
   it("collides against generated mountain heights", () => {

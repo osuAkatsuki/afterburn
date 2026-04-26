@@ -1,100 +1,201 @@
 import * as THREE from "three";
 import { OCEAN_LEVEL } from "../../../shared/constants.js";
-import { sampleTerrainAt, TERRAIN_FIELD } from "../../../shared/terrainField.js";
+import { sampleTerrainAt } from "../../../shared/terrainField.js";
 import type { TerrainKind, TerrainSample } from "../../../shared/terrainField.js";
 
-const TERRAIN_COLORS: Record<TerrainKind, string> = {
-  ocean: "#0c6b7f",
-  beach: "#c2aa73",
-  lowland: "#42734f",
-  highland: "#5e754d",
-  mountain: "#73746b",
-  snow: "#e8f0f2"
+type TerrainClipmapConfig = {
+  name: string;
+  halfSize: number;
+  innerHalfSize: number;
+  step: number;
+  snapStep: number;
+  yOffset: number;
 };
 
+const TERRAIN_LEVELS: TerrainClipmapConfig[] = [
+  { name: "near", halfSize: 920, innerHalfSize: 0, step: 10, snapStep: 40, yOffset: 0 },
+  { name: "mid", halfSize: 2200, innerHalfSize: 840, step: 28, snapStep: 112, yOffset: -0.18 },
+  { name: "far", halfSize: 5200, innerHalfSize: 2050, step: 82, snapStep: 328, yOffset: -0.45 }
+];
+
+const TERRAIN_COLORS: Record<TerrainKind, string> = {
+  ocean: "#103b46",
+  beach: "#cbb878",
+  lowland: "#466f40",
+  highland: "#5e684d",
+  mountain: "#6c6d63",
+  snow: "#e7f1f2"
+};
+
+const COLOR_DEEP_WATER = new THREE.Color("#083442");
+const COLOR_SHALLOW_WATER = new THREE.Color("#0a7f91");
+const COLOR_SAND = new THREE.Color(TERRAIN_COLORS.beach);
+const COLOR_DRY_GRASS = new THREE.Color("#6f7745");
+const COLOR_LUSH_GRASS = new THREE.Color("#356f43");
+const COLOR_HIGH_GRASS = new THREE.Color(TERRAIN_COLORS.highland);
+const COLOR_ROCK = new THREE.Color(TERRAIN_COLORS.mountain);
+const COLOR_DARK_ROCK = new THREE.Color("#454942");
+const COLOR_SNOW = new THREE.Color(TERRAIN_COLORS.snow);
+
 export class TerrainSystem {
-  private terrain?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  private readonly material = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.9,
+    metalness: 0.02,
+    flatShading: false
+  });
+  private readonly levels: TerrainClipmapLevel[] = [];
 
   constructor(private readonly scene: THREE.Scene) {}
 
-  initialize(): void {
-    const geometry = createTerrainGeometry();
-    const material = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.94,
-      metalness: 0.02,
-      flatShading: false
+  initialize(origin = new THREE.Vector3()): void {
+    TERRAIN_LEVELS.forEach((config) => {
+      const level = new TerrainClipmapLevel(config, this.material);
+      level.update(origin, true);
+      this.levels.push(level);
+      this.scene.add(level.mesh);
     });
+  }
 
-    this.terrain = new THREE.Mesh(geometry, material);
-    this.terrain.receiveShadow = true;
-    this.terrain.castShadow = true;
-    this.scene.add(this.terrain);
+  update(cameraPosition: THREE.Vector3): void {
+    this.levels.forEach((level) => level.update(cameraPosition));
   }
 
   dispose(): void {
-    if (!this.terrain) {
-      return;
-    }
-
-    this.scene.remove(this.terrain);
-    this.terrain.geometry.dispose();
-    this.terrain.material.dispose();
-    this.terrain = undefined;
+    this.levels.forEach((level) => {
+      this.scene.remove(level.mesh);
+      level.dispose();
+    });
+    this.levels.length = 0;
+    this.material.dispose();
   }
 }
 
-function createTerrainGeometry(): THREE.BufferGeometry {
-  const segments = TERRAIN_FIELD.renderSegments;
-  const radius = TERRAIN_FIELD.renderRadius;
-  const step = (radius * 2) / segments;
-  const samples: TerrainSample[] = [];
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const indices: number[] = [];
+class TerrainClipmapLevel {
+  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  private readonly positions: Float32Array;
+  private readonly colors: Float32Array;
+  private readonly localCoordinates: Array<{ x: number; z: number }>;
+  private readonly actualHalfSize: number;
+  private originX = Number.NaN;
+  private originZ = Number.NaN;
 
-  for (let zIndex = 0; zIndex <= segments; zIndex += 1) {
-    const z = -radius + zIndex * step;
-    for (let xIndex = 0; xIndex <= segments; xIndex += 1) {
-      const x = -radius + xIndex * step;
-      const sample = sampleTerrainAt(x, z);
-      const height = sample.kind === "ocean" ? OCEAN_LEVEL - 0.08 : sample.height;
-      samples.push(sample);
-      positions.push(x, height, z);
-      pushTerrainColor(colors, sample);
-    }
+  constructor(
+    private readonly config: TerrainClipmapConfig,
+    material: THREE.MeshStandardMaterial
+  ) {
+    const geometry = new THREE.BufferGeometry();
+    const segments = Math.ceil((config.halfSize * 2) / config.step);
+    this.actualHalfSize = (segments * config.step) / 2;
+    this.localCoordinates = createLocalCoordinates(segments, this.actualHalfSize, config.step);
+    this.positions = new Float32Array(this.localCoordinates.length * 3);
+    this.colors = new Float32Array(this.localCoordinates.length * 3);
+
+    geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
+    geometry.setIndex(createClipmapIndices(segments, this.actualHalfSize, config));
+
+    this.mesh = new THREE.Mesh(geometry, material);
+    this.mesh.name = `terrain-${config.name}`;
+    this.mesh.receiveShadow = true;
+    this.mesh.castShadow = true;
+    this.mesh.frustumCulled = false;
   }
 
+  update(center: THREE.Vector3, force = false): void {
+    const nextOriginX = Math.round(center.x / this.config.snapStep) * this.config.snapStep;
+    const nextOriginZ = Math.round(center.z / this.config.snapStep) * this.config.snapStep;
+    if (!force && nextOriginX === this.originX && nextOriginZ === this.originZ) {
+      return;
+    }
+
+    this.originX = nextOriginX;
+    this.originZ = nextOriginZ;
+
+    this.localCoordinates.forEach((local, index) => {
+      const worldX = this.originX + local.x;
+      const worldZ = this.originZ + local.z;
+      const sample = sampleTerrainAt(worldX, worldZ);
+      const positionOffset = index * 3;
+      this.positions[positionOffset] = worldX;
+      this.positions[positionOffset + 1] = terrainRenderHeight(sample, this.config.yOffset);
+      this.positions[positionOffset + 2] = worldZ;
+
+      const color = terrainColor(sample);
+      this.colors[positionOffset] = color.r;
+      this.colors[positionOffset + 1] = color.g;
+      this.colors[positionOffset + 2] = color.b;
+    });
+
+    const geometry = this.mesh.geometry;
+    geometry.attributes.position.needsUpdate = true;
+    geometry.attributes.color.needsUpdate = true;
+    geometry.computeVertexNormals();
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+  }
+}
+
+function createLocalCoordinates(segments: number, halfSize: number, step: number): Array<{ x: number; z: number }> {
+  const coordinates: Array<{ x: number; z: number }> = [];
+  for (let zIndex = 0; zIndex <= segments; zIndex += 1) {
+    const z = -halfSize + zIndex * step;
+    for (let xIndex = 0; xIndex <= segments; xIndex += 1) {
+      const x = -halfSize + xIndex * step;
+      coordinates.push({ x, z });
+    }
+  }
+  return coordinates;
+}
+
+function createClipmapIndices(segments: number, halfSize: number, config: TerrainClipmapConfig): number[] {
+  const indices: number[] = [];
   const row = segments + 1;
+
   for (let zIndex = 0; zIndex < segments; zIndex += 1) {
     for (let xIndex = 0; xIndex < segments; xIndex += 1) {
+      const centerX = -halfSize + (xIndex + 0.5) * config.step;
+      const centerZ = -halfSize + (zIndex + 0.5) * config.step;
+      if (config.innerHalfSize > 0 && Math.max(Math.abs(centerX), Math.abs(centerZ)) < config.innerHalfSize) {
+        continue;
+      }
+
       const a = zIndex * row + xIndex;
       const b = a + 1;
       const c = a + row;
       const d = c + 1;
-      if (isOceanCell(samples[a], samples[b], samples[c], samples[d])) {
-        continue;
-      }
-
       indices.push(a, c, b, b, c, d);
     }
   }
 
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
+  return indices;
 }
 
-function isOceanCell(a: TerrainSample, b: TerrainSample, c: TerrainSample, d: TerrainSample): boolean {
-  return [a, b, c, d].every((sample) => sample.kind === "ocean");
+function terrainRenderHeight(sample: TerrainSample, yOffset: number): number {
+  if (sample.kind === "ocean") {
+    return OCEAN_LEVEL - 5 - sample.waterDepth * 0.14 + yOffset;
+  }
+  return sample.height + yOffset;
 }
 
-function pushTerrainColor(colors: number[], sample: TerrainSample): void {
-  const base = new THREE.Color(TERRAIN_COLORS[sample.kind]);
-  const shade = THREE.MathUtils.clamp(0.82 + sample.slope * 0.28 + sample.land * 0.08, 0.72, 1.16);
-  base.multiplyScalar(shade);
-  colors.push(base.r, base.g, base.b);
+function terrainColor(sample: TerrainSample): THREE.Color {
+  const color =
+    sample.kind === "ocean"
+      ? COLOR_DEEP_WATER.clone().lerp(COLOR_SHALLOW_WATER, THREE.MathUtils.clamp(sample.land / 0.34, 0, 1))
+      : landColor(sample);
+  const broadShade = THREE.MathUtils.clamp(0.92 + sample.detail * 0.09 + sample.slope * 0.18, 0.72, 1.24);
+  return color.multiplyScalar(broadShade);
+}
+
+function landColor(sample: TerrainSample): THREE.Color {
+  if (sample.kind === "beach") {
+    return COLOR_SAND.clone().lerp(COLOR_LUSH_GRASS, THREE.MathUtils.clamp((sample.land - 0.34) / 0.12, 0, 0.28));
+  }
+
+  const grass = COLOR_DRY_GRASS.clone().lerp(COLOR_LUSH_GRASS, sample.moisture).lerp(COLOR_HIGH_GRASS, sample.height / 520);
+  const rock = COLOR_ROCK.clone().lerp(COLOR_DARK_ROCK, THREE.MathUtils.clamp(sample.slope * 0.6, 0, 1));
+  const terrain = grass.lerp(rock, THREE.MathUtils.clamp(sample.rock, 0, 0.92));
+  return terrain.lerp(COLOR_SNOW, THREE.MathUtils.clamp(sample.snow, 0, 1));
 }
