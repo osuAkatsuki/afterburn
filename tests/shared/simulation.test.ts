@@ -573,6 +573,77 @@ describe("shared simulation", () => {
     expect(room.projectiles["wing-hit"]).toBeUndefined();
   });
 
+  it("can validate gun hits against a lag-compensated historical target pose", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    const victim = room.players.p2;
+    attacker.position = { x: 0, y: 160, z: 0 };
+    victim.position = { x: 80, y: 160, z: 150 };
+    setRotation(victim, { pitch: 0, yaw: 0, roll: 0 });
+
+    room.projectiles["rewind-hit"] = {
+      id: "rewind-hit",
+      type: "bullet",
+      ownerId: attacker.id,
+      position: { x: 0, y: 160, z: 110 },
+      velocity: { x: 0, y: 0, z: BULLET_SPEED },
+      ttl: 1,
+      damage: 12,
+      createdAt: 900,
+      combatRewindMs: 100
+    };
+
+    const events = stepRoom(room, 0.05, 1000, {
+      sampleHistoricalPlayer: (playerId) =>
+        playerId === victim.id
+          ? {
+              id: victim.id,
+              status: "alive",
+              position: { x: 0, y: 160, z: 150 },
+              velocity: { x: 0, y: 0, z: 0 },
+              rotation: { pitch: 0, yaw: 0, roll: 0 },
+              orientation: quaternionFromRotation({ pitch: 0, yaw: 0, roll: 0 })
+            }
+          : undefined
+    });
+
+    expect(events).toContainEqual({
+      type: "hit",
+      roomId: room.id,
+      attackerId: attacker.id,
+      victimId: victim.id,
+      damage: 12,
+      weapon: "bullet"
+    });
+    expect(victim.health).toBe(PLAYER_HEALTH - 12);
+  });
+
+  it("does not lag-compensate bullets without a server rewind context", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    const victim = room.players.p2;
+    attacker.position = { x: 0, y: 160, z: 0 };
+    victim.position = { x: 80, y: 160, z: 150 };
+    setRotation(victim, { pitch: 0, yaw: 0, roll: 0 });
+
+    room.projectiles["current-miss"] = {
+      id: "current-miss",
+      type: "bullet",
+      ownerId: attacker.id,
+      position: { x: 0, y: 160, z: 110 },
+      velocity: { x: 0, y: 0, z: BULLET_SPEED },
+      ttl: 1,
+      damage: 12,
+      createdAt: 900,
+      combatRewindMs: 100
+    };
+
+    const events = stepRoom(room, 0.05, 1000);
+
+    expect(events.some((event) => event.type === "hit")).toBe(false);
+    expect(victim.health).toBe(PLAYER_HEALTH);
+  });
+
   it("does not inflate gun hits outside the visible wing surface", () => {
     const victim = createPlayer("p2", "Viper", 1, 1000);
     victim.position = { x: 0, y: 160, z: 80 };

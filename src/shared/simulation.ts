@@ -94,6 +94,14 @@ import type { CombatEvent, InputFrame, PlayerState, ProjectileState, RoomState, 
 const palette = ["#ef4444", "#38bdf8", "#facc15", "#a78bfa", "#34d399", "#fb7185"];
 const SPAWN_SLOT_COUNT = 6;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+export type HistoricalPlayerSample = Pick<
+  PlayerState,
+  "id" | "status" | "position" | "velocity" | "rotation" | "orientation" | "spawnProtectionUntil"
+>;
+export type SimulationContext = {
+  getCombatRewindMs?: (attacker: PlayerState) => number;
+  sampleHistoricalPlayer?: (playerId: string, serverTime: number) => HistoricalPlayerSample | undefined;
+};
 type ProjectileImpactReason = "terrain" | "player" | "flare";
 type MissileGuidanceTarget = {
   position: Vec3;
@@ -264,7 +272,12 @@ export function setPlayerInput(player: PlayerState, input: Partial<InputFrame>):
   player.lastInputSeq = sanitized.seq;
 }
 
-export function stepRoom(room: RoomState, dtSeconds: number, now = room.now + dtSeconds * 1000): CombatEvent[] {
+export function stepRoom(
+  room: RoomState,
+  dtSeconds: number,
+  now = room.now + dtSeconds * 1000,
+  context: SimulationContext = {}
+): CombatEvent[] {
   const dt = clamp(dtSeconds, 0, 0.1);
   const events: CombatEvent[] = [];
   room.now = now;
@@ -280,12 +293,12 @@ export function stepRoom(room: RoomState, dtSeconds: number, now = room.now + dt
     }
 
     if (player.status === "alive") {
-      stepPlayer(room, player, dt, now, events);
+      stepPlayer(room, player, dt, now, events, context);
     }
   });
 
   resolvePlayerCollisions(room, now, events);
-  stepProjectiles(room, dt, now, events);
+  stepProjectiles(room, dt, now, events, context);
 
   if (now >= room.endsAt) {
     room.phase = "ended";
@@ -373,7 +386,14 @@ function isSpawnTerrainSafe(position: Vec3): boolean {
   return terrain.kind !== "mountain" && position.y >= terrain.height + SPAWN_TERRAIN_CLEARANCE;
 }
 
-function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: number, events: CombatEvent[]): void {
+function stepPlayer(
+  room: RoomState,
+  player: PlayerState,
+  dt: number,
+  now: number,
+  events: CombatEvent[],
+  context: SimulationContext
+): void {
   updateSpawnProtection(player, now);
   player.gunCooldown = Math.max(0, player.gunCooldown - dt);
   player.missileCooldown = Math.max(0, player.missileCooldown - dt);
@@ -394,7 +414,7 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
   const weaponsEnabled = !isPlayerSpawnProtected(player, now);
 
   if (weaponsEnabled && player.input.fireGun && player.gunCooldown <= 0 && player.gunAmmoRemaining > 0) {
-    fireGun(room, player, now, events);
+    fireGun(room, player, now, events, context);
   }
 
   if (weaponsEnabled && player.input.fireMissile && player.missileCooldown <= 0 && player.missilesRemaining > 0) {
@@ -595,7 +615,7 @@ function missileSeekerForward(player: PlayerState): Vec3 | undefined {
   return dot(forward, aimDirection) >= MISSILE_SEEKER_GIMBAL_DOT ? aimDirection : forward;
 }
 
-function fireGun(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {
+function fireGun(room: RoomState, player: PlayerState, now: number, events: CombatEvent[], context: SimulationContext): void {
   const forward = playerForward(player);
   const orientation = player.orientation ?? quaternionFromRotation(player.rotation);
   const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
@@ -605,6 +625,7 @@ function fireGun(room: RoomState, player: PlayerState, now: number, events: Comb
   const convergencePoint = add(player.position, scale(forward, GUN_CONVERGENCE_DISTANCE));
   const shotDirection = normalize(subtract(convergencePoint, muzzle));
   const id = `${player.id}-b-${now}-${Math.random().toString(36).slice(2, 7)}`;
+  const combatRewindMs = Math.max(0, context.getCombatRewindMs?.(player) ?? 0);
   room.projectiles[id] = {
     id,
     type: "bullet",
@@ -613,7 +634,9 @@ function fireGun(room: RoomState, player: PlayerState, now: number, events: Comb
     velocity: scale(shotDirection, BULLET_SPEED),
     ttl: BULLET_TTL_SECONDS,
     damage: GUN_DAMAGE,
-    createdAt: now
+    createdAt: now,
+    combatRewindMs: combatRewindMs > 0 ? combatRewindMs : undefined,
+    sourceInputSeq: player.lastInputSeq
   };
   player.gunCooldown = GUN_COOLDOWN_SECONDS;
   player.gunAmmoRemaining = Math.max(0, player.gunAmmoRemaining - 1);
@@ -751,7 +774,7 @@ function findMissileLockCandidate(
     .sort((a, b) => b.lock - a.lock || a.range - b.range)[0]?.candidate;
 }
 
-function stepProjectiles(room: RoomState, dt: number, now: number, events: CombatEvent[]): void {
+function stepProjectiles(room: RoomState, dt: number, now: number, events: CombatEvent[], context: SimulationContext): void {
   Object.values(room.projectiles).forEach((projectile) => {
     projectile.ttl -= dt;
 
@@ -819,7 +842,7 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
       return;
     }
 
-    const hit = findBulletHit(room, projectile, previousPosition, now);
+    const hit = findBulletHit(room, projectile, previousPosition, now, context);
     if (hit) {
       detonateBullet(room, projectile, "player", now, events, hit);
       delete room.projectiles[projectile.id];
@@ -997,15 +1020,62 @@ function proportionalNavigationVelocity(missile: ProjectileState, target: Missil
   return scale(normalize(nextVelocity), MISSILE_SPEED);
 }
 
-function findBulletHit(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): PlayerState | undefined {
+function findBulletHit(
+  room: RoomState,
+  projectile: ProjectileState,
+  previousPosition: Vec3,
+  now: number,
+  context: SimulationContext
+): PlayerState | undefined {
+  const rewindMs = Math.max(0, projectile.combatRewindMs ?? 0);
+  const sampleTime = now - rewindMs;
   return Object.values(room.players)
     .filter((player) => player.id !== projectile.ownerId && player.status === "alive" && !isPlayerSpawnProtected(player, now))
     .map((player) => {
-      const closest = closestProjectileToAircraftBulletDamage(previousPosition, projectile.position, player);
+      const historicalPlayer = combatRewindPlayer(player, sampleTime, rewindMs, context);
+      if (!historicalPlayer) {
+        return { player, clearance: Number.POSITIVE_INFINITY, segmentT: Number.POSITIVE_INFINITY };
+      }
+
+      const closest = closestProjectileToAircraftBulletDamage(previousPosition, projectile.position, historicalPlayer);
       return { player, clearance: closest.clearance, segmentT: closest.segmentT };
     })
     .filter(({ clearance }) => clearance <= BULLET_HIT_RADIUS)
     .sort((a, b) => a.segmentT - b.segmentT || a.clearance - b.clearance)[0]?.player;
+}
+
+function combatRewindPlayer(
+  current: PlayerState,
+  sampleTime: number,
+  rewindMs: number,
+  context: SimulationContext
+): PlayerState | undefined {
+  if (rewindMs <= 0 || !context.sampleHistoricalPlayer) {
+    return current;
+  }
+
+  const sample = context.sampleHistoricalPlayer(current.id, sampleTime);
+  if (!sample) {
+    return current;
+  }
+
+  if (sample.status !== "alive" || isHistoricalSpawnProtected(sample, sampleTime)) {
+    return undefined;
+  }
+
+  return {
+    ...current,
+    status: sample.status,
+    position: cloneVec3(sample.position),
+    velocity: cloneVec3(sample.velocity),
+    rotation: { ...sample.rotation },
+    orientation: sample.orientation ? { ...sample.orientation } : undefined,
+    spawnProtectionUntil: sample.spawnProtectionUntil
+  };
+}
+
+function isHistoricalSpawnProtected(player: HistoricalPlayerSample, now: number): boolean {
+  return player.status === "alive" && Boolean(player.spawnProtectionUntil && now < player.spawnProtectionUntil);
 }
 
 function findMissileDirectHit(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): MissilePlayerCandidate | undefined {

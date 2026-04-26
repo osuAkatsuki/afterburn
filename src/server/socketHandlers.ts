@@ -98,7 +98,7 @@ export function registerGameSocketHandlers(io: GameServer, manager: GameRoomMana
     });
 
     socket.on("net:latency", (payload) => {
-      const room = manager.setLatency(socket.id, payload?.rttMs);
+      const room = manager.setLatency(socket.id, payload?.rttMs, payload?.interpolationDelayMs);
       if (room && room.phase !== "playing") {
         emitSnapshot(io, manager, room);
       }
@@ -118,7 +118,7 @@ export function startGameLoop(io: GameServer, manager: GameRoomManager): NodeJS.
         io.to(room.id).emit("combat:event", event);
       });
 
-      emitSnapshot(io, manager, room);
+      emitSnapshot(io, manager, room, true);
 
       if (ended) {
         const payload: RoundEndedPayload = { room, winnerId: room.winnerId };
@@ -155,9 +155,10 @@ function emitError(socket: GameSocket, message: string): void {
   socket.emit("room:error", payload);
 }
 
-function emitSnapshot(io: GameServer, manager: GameRoomManager, room: RoomState): void {
+function emitSnapshot(io: GameServer, manager: GameRoomManager, room: RoomState, volatile = false): void {
   const payload: StateSnapshotPayload = { tick: manager.getTick(), sentAt: Date.now(), room };
-  io.to(room.id).emit("state:snapshot", payload);
+  const target = volatile ? io.to(room.id).volatile : io.to(room.id);
+  target.emit("state:snapshot", payload);
 }
 
 function readName(payload: unknown): string {

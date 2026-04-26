@@ -42,6 +42,7 @@ export function DebugOverlay({ visible, stats, networkStats }: DebugOverlayProps
               ["Receive age", networkStats?.lastSnapshotAt ? `${Math.max(0, performance.now() - networkStats.lastSnapshotAt).toFixed(0)} ms` : "--"],
               ["Server age", `${stats.snapshotServerAgeMs.toFixed(0)} ms`],
               ["Transport", networkStats?.serverClockSamples ? `${networkStats.transportDelayMs.toFixed(0)} ms` : "--"],
+              ["Snapshot", networkStats?.snapshotBytes ? formatBytes(networkStats.snapshotBytes) : "--"],
               ["Interp delay", `${stats.snapshotDelayMs.toFixed(0)} ms`],
               ["Buffer ahead", `${stats.snapshotBufferMs.toFixed(0)} ms`],
               ["Pending inputs", formatCount(stats.pendingInputs)],
@@ -115,4 +116,12 @@ function DebugSection({ title, rows }: { title: string; rows: Array<[string, str
 
 function formatCount(value: number): string {
   return Math.round(value).toLocaleString("en-US");
+}
+
+function formatBytes(value: number): string {
+  if (value >= 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+
+  return `${Math.round(value)} B`;
 }

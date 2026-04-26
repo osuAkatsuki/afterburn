@@ -1,4 +1,10 @@
-import { DISCONNECT_GRACE_MS, MAX_PLAYERS, TICK_RATE } from "../shared/constants.js";
+import {
+  DISCONNECT_GRACE_MS,
+  MAX_CLIENT_INTERPOLATION_DELAY_MS,
+  MAX_COMBAT_REWIND_MS,
+  MAX_PLAYERS,
+  TICK_RATE
+} from "../shared/constants.js";
 import {
   addPlayerToRoom,
   cleanName,
@@ -6,13 +12,14 @@ import {
   createRoomState,
   neutralInput,
   resetPlayerForRound,
-  sanitizeInput,
   setPlayerInput,
   startRound,
   stepRoom
 } from "../shared/simulation.js";
 import type { BotSkill, CombatEvent, InputFrame, RoomState } from "../shared/types.js";
 import { createBotInput } from "./botPilot.js";
+import { PlayerInputQueue } from "./net/PlayerInputQueue.js";
+import { RoomHistory } from "./net/RoomHistory.js";
 
 export type JoinResult =
   | { ok: true; room: RoomState; playerId: string }
@@ -24,13 +31,20 @@ export type TickResult = {
   ended: boolean;
 };
 
+type PlayerNetworkStats = {
+  rttMs: number;
+  interpolationDelayMs: number;
+};
+
 export class GameRoomManager {
   readonly rooms = new Map<string, RoomState>();
   private readonly playerRooms = new Map<string, string>();
   private readonly socketPlayers = new Map<string, string>();
   private readonly playerSockets = new Map<string, string>();
   private readonly disconnectedAt = new Map<string, number>();
-  private readonly inputQueues = new Map<string, InputFrame[]>();
+  private readonly inputQueues = new Map<string, PlayerInputQueue>();
+  private readonly playerNetworkStats = new Map<string, PlayerNetworkStats>();
+  private readonly roomHistory = new RoomHistory();
   private tick = 0;
 
   constructor(private readonly makeRoomId = defaultRoomId) {}
@@ -191,6 +205,7 @@ export class GameRoomManager {
 
     startRound(room, now);
     this.clearRoomInputQueues(room);
+    this.roomHistory.record(room, this.tick, now);
     return { ok: true, room, playerId };
   }
 
@@ -235,7 +250,7 @@ export class GameRoomManager {
     this.queueInput(player.id, player.lastInputSeq, input);
   }
 
-  setLatency(socketId: string, rttMs: unknown, now = Date.now()): RoomState | undefined {
+  setLatency(socketId: string, rttMs: unknown, interpolationDelayMs: unknown = 0, now = Date.now()): RoomState | undefined {
     const playerId = this.resolvePlayerId(socketId);
     const room = this.getRoomForPlayer(playerId);
     const player = room?.players[playerId];
@@ -243,7 +258,12 @@ export class GameRoomManager {
       return undefined;
     }
 
-    player.latencyMs = normalizeLatencyMs(rttMs);
+    const normalizedRttMs = normalizeLatencyMs(rttMs);
+    player.latencyMs = normalizedRttMs;
+    this.playerNetworkStats.set(playerId, {
+      rttMs: normalizedRttMs,
+      interpolationDelayMs: normalizeInterpolationDelayMs(interpolationDelayMs)
+    });
     room.now = now;
     return room;
   }
@@ -282,6 +302,7 @@ export class GameRoomManager {
     this.playerRooms.delete(playerId);
     this.disconnectedAt.delete(playerId);
     this.inputQueues.delete(playerId);
+    this.playerNetworkStats.delete(playerId);
     const socketId = this.playerSockets.get(playerId);
     if (socketId) {
       this.socketPlayers.delete(socketId);
@@ -319,8 +340,14 @@ export class GameRoomManager {
         this.consumeQueuedInputs(room);
         this.updateBotInputs(room, now);
       }
-      const events = stepRoom(room, 1 / TICK_RATE, now);
+      const events = stepRoom(room, 1 / TICK_RATE, now, {
+        getCombatRewindMs: (attacker) => this.combatRewindMs(attacker.id),
+        sampleHistoricalPlayer: (playerId, serverTime) => this.roomHistory.samplePlayer(room.id, playerId, serverTime)
+      });
       const ended = wasPlaying && room.phase === "ended";
+      if (wasPlaying) {
+        this.roomHistory.record(room, this.tick, now);
+      }
 
       if (wasPlaying || events.length > 0 || ended || cleanupChanged) {
         results.push({ room, events, ended });
@@ -382,27 +409,8 @@ export class GameRoomManager {
   }
 
   private queueInput(playerId: string, lastProcessedSeq: number, input: Partial<InputFrame>): void {
-    const sanitized = sanitizeInput(input, 0);
-    if (sanitized.seq <= lastProcessedSeq) {
-      return;
-    }
-
-    const queue = this.inputQueues.get(playerId) ?? [];
-    const lastQueued = queue.at(-1);
-    if (lastQueued && sanitized.seq < lastQueued.seq) {
-      return;
-    }
-
-    if (lastQueued && sanitized.seq === lastQueued.seq) {
-      queue[queue.length - 1] = sanitized;
-    } else {
-      queue.push(sanitized);
-    }
-
-    while (queue.length > 96) {
-      queue.shift();
-    }
-
+    const queue = this.inputQueues.get(playerId) ?? new PlayerInputQueue();
+    queue.enqueue(input, lastProcessedSeq);
     this.inputQueues.set(playerId, queue);
   }
 
@@ -413,16 +421,18 @@ export class GameRoomManager {
       }
 
       const queue = this.inputQueues.get(player.id);
-      if (!queue || queue.length === 0) {
+      if (!queue || queue.isEmpty()) {
         return;
       }
 
-      const nextInput = collapseQueuedInputs(queue, player.lastInputSeq);
+      const nextInput = queue.consume(player.lastInputSeq);
       if (nextInput) {
         setPlayerInput(player, nextInput);
       }
 
-      this.inputQueues.delete(player.id);
+      if (queue.isEmpty()) {
+        this.inputQueues.delete(player.id);
+      }
     });
   }
 
@@ -445,6 +455,7 @@ export class GameRoomManager {
       this.playerRooms.delete(playerId);
       this.disconnectedAt.delete(playerId);
       this.inputQueues.delete(playerId);
+      this.playerNetworkStats.delete(playerId);
       const socketId = this.playerSockets.get(playerId);
       if (socketId) {
         this.socketPlayers.delete(socketId);
@@ -452,6 +463,16 @@ export class GameRoomManager {
       this.playerSockets.delete(playerId);
     });
     this.rooms.delete(room.id);
+    this.roomHistory.deleteRoom(room.id);
+  }
+
+  private combatRewindMs(playerId: string): number {
+    const stats = this.playerNetworkStats.get(playerId);
+    const roomId = this.playerRooms.get(playerId);
+    const player = roomId ? this.rooms.get(roomId)?.players[playerId] : undefined;
+    const rttMs = stats?.rttMs ?? player?.latencyMs ?? 0;
+    const interpolationDelayMs = stats?.interpolationDelayMs ?? 0;
+    return Math.round(Math.max(0, Math.min(MAX_COMBAT_REWIND_MS, rttMs / 2 + interpolationDelayMs)));
   }
 
   private resolvePlayerId(socketOrPlayerId: string): string {
@@ -511,6 +532,14 @@ export function normalizeLatencyMs(rttMs: unknown): number {
   return Math.max(0, Math.min(9999, Math.round(rttMs)));
 }
 
+export function normalizeInterpolationDelayMs(delayMs: unknown): number {
+  if (typeof delayMs !== "number" || !Number.isFinite(delayMs)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(MAX_CLIENT_INTERPOLATION_DELAY_MS, Math.round(delayMs)));
+}
+
 export function uniquePlayerName(room: RoomState, requestedName: string, playerId: string): string {
   const base = cleanName(requestedName);
   const taken = new Set(
@@ -545,21 +574,6 @@ function nextBotName(room: RoomState): string {
   }
 
   return name;
-}
-
-function collapseQueuedInputs(queue: InputFrame[], lastInputSeq: number): InputFrame | undefined {
-  const inputs = queue.filter((input) => input.seq > lastInputSeq);
-  const latest = inputs.at(-1);
-  if (!latest) {
-    return undefined;
-  }
-
-  return {
-    ...latest,
-    fireGun: inputs.some((input) => input.fireGun),
-    fireMissile: inputs.some((input) => input.fireMissile),
-    fireFlare: inputs.some((input) => input.fireFlare)
-  };
 }
 
 function defaultRoomId(): string {
