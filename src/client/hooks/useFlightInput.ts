@@ -185,6 +185,7 @@ export function useFlightInput({
         const keyboardPitch = axis("KeyS", "KeyW", keys.current) || axis("ArrowUp", "ArrowDown", keys.current) || axis("KeyI", "KeyK", keys.current);
         const keyboardYaw = axis("ArrowLeft", "ArrowRight", keys.current) || axis("KeyJ", "KeyL", keys.current);
         const keyboardRoll = axis("KeyA", "KeyD", keys.current);
+        const aimDirection = freeLook.current.active ? undefined : getMouseAimDirectionRef.current?.(mouseAim.current);
         const input: InputFrame = {
           seq: seq.current,
           thrust: 0,
@@ -195,7 +196,7 @@ export function useFlightInput({
           fireMissile: keys.current.has("KeyE"),
           fireFlare: keys.current.has("KeyF"),
           afterburner: keys.current.has("ShiftLeft") || keys.current.has("ShiftRight"),
-          aimDirection: freeLook.current.active ? undefined : getMouseAimDirectionRef.current?.(mouseAim.current),
+          aimDirection,
           timestamp: now
         };
         onLocalInputRef.current?.(input);

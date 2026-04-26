@@ -43,7 +43,7 @@ export class ReticleProjector {
 
     const hasMissiles = local.missilesRemaining > 0;
     this.reticle.dataset.visible = "true";
-    this.reticle.dataset.lock = hasMissiles && local.missileLockAcquired ? "locked" : hasMissiles && local.missileLockProgress > 0 ? "locking" : "idle";
+    this.reticle.dataset.lock = "idle";
     this.reticle.style.setProperty("--reticle-x", `${x}px`);
     this.reticle.style.setProperty("--reticle-y", `${y}px`);
     if (hasMissiles) {
@@ -105,6 +105,7 @@ export class ReticleProjector {
     if (!this.reticle || !local.missileLockTargetId || local.missileLockProgress <= 0) {
       if (this.reticle) {
         this.reticle.dataset.targetVisible = "false";
+        this.reticle.dataset.targetLock = "idle";
       }
       return;
     }
@@ -113,12 +114,14 @@ export class ReticleProjector {
     const targetJet = target ? this.getJet(target.id) : undefined;
     if (!target || target.status !== "alive" || !targetJet?.visible) {
       this.reticle.dataset.targetVisible = "false";
+      this.reticle.dataset.targetLock = "idle";
       return;
     }
 
     const targetPoint = targetJet.position.clone().project(this.camera);
     if (targetPoint.z < -1 || targetPoint.z > 1) {
       this.reticle.dataset.targetVisible = "false";
+      this.reticle.dataset.targetLock = "idle";
       return;
     }
 
@@ -127,9 +130,53 @@ export class ReticleProjector {
     const y = Math.max(margin, Math.min(window.innerHeight - margin, ((-targetPoint.y + 1) / 2) * window.innerHeight));
 
     this.reticle.dataset.targetVisible = "true";
+    this.reticle.dataset.targetLock = local.missileLockAcquired ? "locked" : "locking";
     this.reticle.style.setProperty("--target-x", `${x}px`);
     this.reticle.style.setProperty("--target-y", `${y}px`);
+
+    const range = distance(local.position, target.position);
+    const closure = closingSpeed(local, target);
+    this.reticle.style.setProperty("--target-progress", local.missileLockProgress.toFixed(3));
+    this.setLockText("strong", target.name.toUpperCase());
+    this.setLockText("span", `${formatKilometers(range)} KM`);
+    this.setLockText("em", `${closure >= 0 ? "CLOS" : "OPEN"} ${Math.abs(Math.round(closure))} M/S`);
+    this.setLockText("small", local.missileLockAcquired ? "LOCK" : `${Math.round(local.missileLockProgress * 100)}%`);
   }
+
+  private setLockText(selector: string, value: string): void {
+    const element = this.reticle?.querySelector(`.lock-target ${selector}`);
+    if (element) {
+      element.textContent = value;
+    }
+  }
+}
+
+function distance(first: PlayerState["position"], second: PlayerState["position"]): number {
+  return Math.hypot(second.x - first.x, second.y - first.y, second.z - first.z);
+}
+
+function closingSpeed(local: PlayerState, target: PlayerState): number {
+  const offset = new THREE.Vector3(
+    target.position.x - local.position.x,
+    target.position.y - local.position.y,
+    target.position.z - local.position.z
+  );
+  const range = offset.length();
+  if (range <= 0.001) {
+    return 0;
+  }
+
+  const relativeVelocity = new THREE.Vector3(
+    target.velocity.x - local.velocity.x,
+    target.velocity.y - local.velocity.y,
+    target.velocity.z - local.velocity.z
+  );
+  return -relativeVelocity.dot(offset.multiplyScalar(1 / range));
+}
+
+function formatKilometers(rangeMeters: number): string {
+  const kilometers = rangeMeters / 1000;
+  return kilometers >= 10 ? Math.round(kilometers).toString() : kilometers.toFixed(1);
 }
 
 export function calculateInterceptTime(origin: THREE.Vector3, target: THREE.Vector3, targetVelocity: THREE.Vector3, projectileSpeed: number): number | undefined {

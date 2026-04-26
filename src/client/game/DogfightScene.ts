@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { RoomState, Vec3 } from "../../shared/types.js";
-import { ChaseCamera } from "./camera/ChaseCamera.js";
+import { CAMERA_FAR, ChaseCamera } from "./camera/ChaseCamera.js";
 import type { CameraLookInput } from "../hooks/useFlightInput.js";
 import {
   computeMouseAimInstructorAxes,
@@ -39,7 +39,7 @@ export type SceneDebugStats = {
 export class DogfightScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 6000);
+  private readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, CAMERA_FAR);
   private readonly chaseCamera = new ChaseCamera(this.camera);
   private readonly reticleProjector: ReticleProjector;
   private readonly clock = new THREE.Clock();

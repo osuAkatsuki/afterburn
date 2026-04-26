@@ -30,7 +30,6 @@ import {
   MISSILE_HIT_RADIUS,
   MISSILE_NAVIGATION_CONSTANT,
   MISSILE_SEEKER_GATE_DOT,
-  MISSILE_SEEKER_GIMBAL_DOT,
   MISSILE_SPEED,
   MISSILE_TTL_SECONDS,
   OUT_OF_BOUNDS_GRACE_MS,
@@ -98,7 +97,7 @@ describe("shared simulation", () => {
   it("keeps weapon and aircraft speeds on the requested ratios", () => {
     expect(MAX_SPEED).toBe(SPEED_UNIT * 1.5);
     expect(AFTERBURNER_SPEED).toBe(SPEED_UNIT * 2);
-    expect(BULLET_SPEED).toBe(SPEED_UNIT * 12);
+    expect(BULLET_SPEED).toBe(SPEED_UNIT * 16);
     expect(BULLET_TTL_SECONDS).toBeCloseTo(0.85 * 3);
     expect(MISSILE_SPEED).toBe(SPEED_UNIT * 6);
     expect(MISSILE_NAVIGATION_CONSTANT).toBeGreaterThanOrEqual(3);
@@ -108,7 +107,7 @@ describe("shared simulation", () => {
     expect(FLARE_DECOY_RANGE).toBeGreaterThan(400);
     expect(FLARE_COOLDOWN_SECONDS).toBeLessThan(0.25);
     expect(FLARE_AMMO_PER_ROUND).toBe(24);
-    expect(GUN_AMMO_PER_ROUND).toBe(240);
+    expect(GUN_AMMO_PER_ROUND).toBe(480);
     expect(FLARE_PEAK_HEAT_SIGNATURE).toBeGreaterThan(JET_ENGINE_HEAT_SIGNATURE);
     expect(FLARE_MIN_HEAT_SIGNATURE).toBeLessThan(JET_ENGINE_HEAT_SIGNATURE);
     expect(FLARE_HEAT_DECAY_SECONDS).toBeLessThan(FLARE_TTL_SECONDS);
@@ -458,13 +457,13 @@ describe("shared simulation", () => {
     const attacker = room.players.p1;
     const victim = room.players.p2;
 
-    attacker.position = { x: 0, y: 120, z: 0 };
+    attacker.position = { x: 0, y: 420, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    victim.position = { x: 0, y: 120, z: 90 };
+    victim.position = { x: 0, y: 420, z: 90 };
     victim.health = 12;
 
     setPlayerInput(attacker, { seq: 1, fireGun: true });
-    const events = stepRoom(room, 0.1, 1050);
+    const events = stepRoom(room, 0.05, 1050);
 
     expect(events.some((event) => event.type === "kill")).toBe(true);
     expect(attacker.score).toBe(1);
@@ -647,7 +646,7 @@ describe("shared simulation", () => {
     };
     room.projectiles[missile.id] = missile;
 
-    const events = stepRoom(room, 0.01, 1050);
+    const events = stepRoom(room, 0.001, 1050);
 
     expect(room.projectiles[missile.id]).toBeDefined();
     expect(events.some((event) => event.type === "impact" && event.projectileType === "missile")).toBe(false);
@@ -666,7 +665,7 @@ describe("shared simulation", () => {
       id: "proximity-missile",
       type: "missile",
       ownerId: owner.id,
-      position: { x: -MISSILE_SPEED / 60, y: 180, z: PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS + 8 },
+      position: { x: -MISSILE_SPEED * 0.0005, y: 180, z: PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS + 8 },
       velocity: { x: MISSILE_SPEED, y: 0, z: 0 },
       ttl: 1,
       damage: MISSILE_DAMAGE,
@@ -674,7 +673,7 @@ describe("shared simulation", () => {
     };
     room.projectiles[missile.id] = missile;
 
-    const events = stepRoom(room, 1 / 30, 1050);
+    const events = stepRoom(room, 0.001, 1050);
 
     expect(room.projectiles[missile.id]).toBeUndefined();
     expect(events.some((event) => event.type === "impact" && event.projectileType === "missile" && event.reason === "player")).toBe(true);
@@ -702,7 +701,8 @@ describe("shared simulation", () => {
     };
     room.projectiles[missile.id] = missile;
 
-    const unarmedEvents = stepRoom(room, 0, 1050);
+    const unarmedAt = 1000 + Math.max(1, Math.floor((MISSILE_ARMING_DISTANCE / MISSILE_SPEED) * 1000) - 1);
+    const unarmedEvents = stepRoom(room, 0, unarmedAt);
 
     expect(room.projectiles[missile.id]).toBeDefined();
     expect(victim.status).toBe("alive");
@@ -822,7 +822,7 @@ describe("shared simulation", () => {
     expect(attacker.missilesRemaining).toBe(MISSILE_AMMO_PER_ROUND - 2);
   });
 
-  it("can acquire long-range missile locks in the larger arena", () => {
+  it("can acquire missile locks up to the derived missile range", () => {
     const room = twoPlayerRoom();
     const attacker = room.players.p1;
     const target = room.players.p2;
@@ -848,7 +848,7 @@ describe("shared simulation", () => {
     expect(attacker.missileLockTargetId).toBeUndefined();
   });
 
-  it("can slave heat-seeker lock to mouse aim inside the seeker gimbal", () => {
+  it("keeps missile locks and dumbfire launches tied to the aircraft nose", () => {
     const room = twoPlayerRoom();
     const attacker = room.players.p1;
     const target = room.players.p2;
@@ -859,21 +859,23 @@ describe("shared simulation", () => {
     setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
 
     const targetDirection = normalize(subtract(target.position, attacker.position));
-    expect(dot(targetDirection, forwardVector(attacker.rotation))).toBeLessThan(MISSILE_LOCK_DOT);
-    expect(dot(targetDirection, forwardVector(attacker.rotation))).toBeGreaterThan(MISSILE_SEEKER_GIMBAL_DOT);
+    const noseForward = forwardVector(attacker.rotation);
+    expect(dot(targetDirection, noseForward)).toBeLessThan(MISSILE_LOCK_DOT);
 
     for (let i = 0; i < Math.ceil(MISSILE_LOCK_SECONDS / 0.1) + 1; i += 1) {
       setPlayerInput(attacker, { seq: i + 1, aimDirection: targetDirection });
       stepRoom(room, 0.1, 1100 + i * 100);
     }
 
-    expect(attacker.missileLockTargetId).toBe(target.id);
-    expect(attacker.missileLockAcquired).toBe(true);
-
-    setPlayerInput(attacker, { seq: 80, aimDirection: { x: -1, y: 0, z: 0 } });
-    stepRoom(room, 0.1, room.now + 100);
-
+    expect(attacker.missileLockAcquired).toBe(false);
     expect(attacker.missileLockTargetId).toBeUndefined();
+
+    setPlayerInput(attacker, { seq: 80, aimDirection: targetDirection, fireMissile: true });
+    stepRoom(room, 0, room.now + 100);
+
+    const missile = Object.values(room.projectiles).find((projectile) => projectile.type === "missile" && projectile.ownerId === attacker.id);
+    expect(missile?.targetId).toBeUndefined();
+    expect(dot(normalize(missile?.velocity ?? { x: 0, y: 0, z: 0 }), noseForward)).toBeGreaterThan(0.99);
   });
 
   it("uses a narrow lock cone and a tight break cone", () => {
@@ -903,20 +905,20 @@ describe("shared simulation", () => {
     const attacker = room.players.p1;
     const target = room.players.p2;
 
-    attacker.position = { x: 0, y: 160, z: 0 };
+    attacker.position = { x: 0, y: 420, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    target.position = { x: 0, y: 160, z: 240 };
+    target.position = { x: 0, y: 420, z: 240 };
     setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
 
     attacker.gunAmmoRemaining = 1;
     setPlayerInput(attacker, { seq: 10, fireGun: true });
-    stepRoom(room, 1 / 30, 2300);
+    stepRoom(room, 0, 2300);
     expect(attacker.gunAmmoRemaining).toBe(0);
     expect(Object.values(room.projectiles).filter((projectile) => projectile.type === "bullet")).toHaveLength(1);
 
     attacker.gunCooldown = 0;
     setPlayerInput(attacker, { seq: 11, fireGun: true });
-    stepRoom(room, 1 / 30, 2333);
+    stepRoom(room, 0, 2333);
     expect(Object.values(room.projectiles).filter((projectile) => projectile.type === "bullet")).toHaveLength(1);
 
     attacker.missilesRemaining = 1;
@@ -933,7 +935,7 @@ describe("shared simulation", () => {
     attacker.missileLockProgress = 1;
     attacker.missileLockAcquired = true;
     setPlayerInput(attacker, { seq: 40, fireMissile: true });
-    stepRoom(room, 1 / 30, 3800);
+    stepRoom(room, 0, 2401);
     expect(Object.values(room.projectiles).filter((projectile) => projectile.type === "missile")).toHaveLength(1);
     expect(attacker.missileLockTargetId).toBeUndefined();
     expect(attacker.missileLockAcquired).toBe(false);

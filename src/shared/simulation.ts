@@ -38,7 +38,6 @@ import {
   MISSILE_NAVIGATION_CONSTANT,
   MISSILE_PROXIMITY_RADIUS,
   MISSILE_SEEKER_GATE_DOT,
-  MISSILE_SEEKER_GIMBAL_DOT,
   MISSILE_SPEED,
   MISSILE_TTL_SECONDS,
   MISSILE_TURN_RATE,
@@ -92,6 +91,12 @@ type ProjectileImpactReason = "terrain" | "player" | "flare";
 type MissileGuidanceTarget = {
   position: Vec3;
   velocity: Vec3;
+};
+type MissilePlayerCandidate = {
+  player: PlayerState;
+  closestRange: number;
+  segmentT: number;
+  position: Vec3;
 };
 
 export const neutralInput = (timestamp = 0): InputFrame => ({
@@ -561,16 +566,6 @@ function playerForward(player: PlayerState): Vec3 {
   return normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, player.orientation ?? quaternionFromRotation(player.rotation)));
 }
 
-function missileSeekerForward(player: PlayerState): Vec3 {
-  const forward = playerForward(player);
-  const aimDirection = player.input.aimDirection;
-  if (!aimDirection) {
-    return forward;
-  }
-
-  return dot(forward, aimDirection) >= MISSILE_SEEKER_GIMBAL_DOT ? aimDirection : forward;
-}
-
 function fireGun(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {
   const forward = playerForward(player);
   const orientation = player.orientation ?? quaternionFromRotation(player.rotation);
@@ -691,11 +686,11 @@ function isLockValid(room: RoomState, player: PlayerState, targetId: string, req
     return false;
   }
 
-  return dot(missileSeekerForward(player), normalize(offset)) >= requiredDot;
+  return dot(playerForward(player), normalize(offset)) >= requiredDot;
 }
 
 function findMissileLockCandidate(room: RoomState, player: PlayerState, requiredDot: number, now: number): PlayerState | undefined {
-  const forward = missileSeekerForward(player);
+  const forward = playerForward(player);
 
   return Object.values(room.players)
     .filter((candidate) => candidate.id !== player.id && candidate.status === "alive" && !isPlayerSpawnProtected(candidate, now))
@@ -761,13 +756,15 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
       if (isMissileArmed(projectile, now)) {
         const directHit = findMissileDirectHit(room, projectile, previousPosition, now);
         if (directHit) {
-          detonateMissile(room, projectile, "player", now, events, directHit.id);
+          projectile.position = cloneVec3(directHit.position);
+          detonateMissile(room, projectile, "player", now, events, directHit.player.id);
           delete room.projectiles[projectile.id];
           return;
         }
 
         const proximityHit = findMissileProximityFuseTarget(room, projectile, previousPosition, now);
         if (proximityHit) {
+          projectile.position = cloneVec3(proximityHit.position);
           detonateMissile(room, projectile, "player", now, events);
           delete room.projectiles[projectile.id];
         }
@@ -964,13 +961,13 @@ function findBulletHit(room: RoomState, projectile: ProjectileState, previousPos
     .sort((a, b) => a.segmentT - b.segmentT || a.closestRange - b.closestRange)[0]?.player;
 }
 
-function findMissileDirectHit(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): PlayerState | undefined {
+function findMissileDirectHit(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): MissilePlayerCandidate | undefined {
   return missilePlayerCandidates(room, projectile, previousPosition, now)
     .filter(({ closestRange }) => closestRange <= PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS)
-    .sort((a, b) => a.closestRange - b.closestRange)[0]?.player;
+    .sort((a, b) => a.closestRange - b.closestRange)[0];
 }
 
-function findMissileProximityFuseTarget(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): PlayerState | undefined {
+function findMissileProximityFuseTarget(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): MissilePlayerCandidate | undefined {
   return missilePlayerCandidates(room, projectile, previousPosition, now)
     .filter(({ closestRange, segmentT, player }) => {
       if (closestRange > PLAYER_HIT_RADIUS + MISSILE_PROXIMITY_RADIUS) {
@@ -979,27 +976,28 @@ function findMissileProximityFuseTarget(room: RoomState, projectile: ProjectileS
 
       return segmentT < 0.98 || !isMissileClosingOnPlayer(projectile, player);
     })
-    .sort((a, b) => a.closestRange - b.closestRange)[0]?.player;
+    .sort((a, b) => a.closestRange - b.closestRange)[0];
 }
 
-function missilePlayerCandidates(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): { player: PlayerState; closestRange: number; segmentT: number }[] {
+function missilePlayerCandidates(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): MissilePlayerCandidate[] {
   return Object.values(room.players)
     .filter((player) => player.id !== projectile.ownerId && player.status === "alive" && !isPlayerSpawnProtected(player, now))
     .map((player) => {
       const closest = closestPointOnSegment(previousPosition, projectile.position, player.position);
-      return { player, closestRange: closest.range, segmentT: closest.t };
+      return { player, closestRange: closest.range, segmentT: closest.t, position: closest.position };
     });
 }
 
-function closestPointOnSegment(start: Vec3, end: Vec3, point: Vec3): { range: number; t: number } {
+function closestPointOnSegment(start: Vec3, end: Vec3, point: Vec3): { range: number; t: number; position: Vec3 } {
   const segment = subtract(end, start);
   const lengthSquared = dot(segment, segment);
   if (lengthSquared <= 0) {
-    return { range: distance(start, point), t: 0 };
+    return { range: distance(start, point), t: 0, position: cloneVec3(start) };
   }
 
   const t = clamp(dot(subtract(point, start), segment) / lengthSquared, 0, 1);
-  return { range: distance(add(start, scale(segment, t)), point), t };
+  const position = add(start, scale(segment, t));
+  return { range: distance(position, point), t, position };
 }
 
 function isMissileClosingOnPlayer(projectile: ProjectileState, player: PlayerState): boolean {

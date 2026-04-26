@@ -130,10 +130,10 @@ export const AIR_DRAG = 0.08;
 export const VELOCITY_ALIGNMENT = 4.2;
 
 export const GUN_DAMAGE = 12;
-export const GUN_COOLDOWN_SECONDS = 0.085;
-export const GUN_AMMO_PER_ROUND = 240;
+export const GUN_COOLDOWN_SECONDS = 0.085 / 6;
+export const GUN_AMMO_PER_ROUND = 480;
 export const GUN_CONVERGENCE_DISTANCE = 650;
-export const BULLET_SPEED = SPEED_UNIT * 12;
+export const BULLET_SPEED = SPEED_UNIT * 16;
 export const BULLET_TTL_SECONDS = 2.55;
 export const BULLET_HIT_RADIUS = 3;
 

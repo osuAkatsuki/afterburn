@@ -3,11 +3,16 @@ import { MAX_ALTITUDE } from "../../../shared/constants.js";
 import type { PlayerState } from "../../../shared/types.js";
 import type { CameraLookInput } from "../../hooks/useFlightInput.js";
 
+export const CAMERA_FAR = Math.max(6000, MAX_ALTITUDE * 6);
+
 export class ChaseCamera {
   private readonly cameraLookTarget = new THREE.Vector3(0, 180, 0);
   private readonly chaseCameraFlip = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
-  constructor(private readonly camera: THREE.PerspectiveCamera) {}
+  constructor(private readonly camera: THREE.PerspectiveCamera) {
+    this.camera.far = CAMERA_FAR;
+    this.camera.updateProjectionMatrix();
+  }
 
   update(dt: number, local: PlayerState | undefined, localJet: THREE.Group | undefined, look?: CameraLookInput): void {
     const cameraAlpha = 1 - Math.exp(-dt * 16);
@@ -30,6 +35,5 @@ export class ChaseCamera {
 
     this.camera.position.lerp(desired, cameraAlpha);
     this.camera.quaternion.slerp(desiredRotation, rotationAlpha);
-    this.camera.far = Math.max(6000, MAX_ALTITUDE * 6);
   }
 }

@@ -22,6 +22,10 @@ export const Reticle = forwardRef<HTMLDivElement>(function Reticle(_props, ref) 
         <i />
         <i />
         <i />
+        <strong />
+        <span />
+        <em />
+        <small />
       </div>
     </div>
   );

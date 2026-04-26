@@ -440,16 +440,6 @@ meter {
   opacity: 1;
 }
 
-.aim-overlay[data-lock="locking"] {
-  --reticle-color: rgb(251 191 36 / 90%);
-  --reticle-glow: rgb(251 191 36 / 34%);
-}
-
-.aim-overlay[data-lock="locked"] {
-  --reticle-color: rgb(248 113 113 / 94%);
-  --reticle-glow: rgb(248 113 113 / 42%);
-}
-
 .reticle {
   position: fixed;
   left: var(--reticle-x, 50%);
@@ -507,14 +497,6 @@ meter {
   letter-spacing: 0.08em;
   text-shadow: 0 0 12px var(--reticle-glow);
   white-space: nowrap;
-}
-
-.aim-overlay[data-lock="locking"] .reticle b::before {
-  content: "LOCKING";
-}
-
-.aim-overlay[data-lock="locked"] .reticle b::before {
-  content: "LOCK";
 }
 
 .lead-pip {
@@ -597,25 +579,37 @@ meter {
 }
 
 .lock-target {
+  --target-color: rgb(251 191 36 / 90%);
+  --target-glow: rgb(251 191 36 / 34%);
   position: fixed;
   left: var(--target-x, 50%);
   top: var(--target-y, 50%);
-  width: 62px;
-  height: 62px;
+  width: 76px;
+  height: 76px;
   opacity: 0;
   transform: translate(-50%, -50%);
+  color: var(--target-color);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 10px var(--target-glow);
 }
 
 .aim-overlay[data-target-visible="true"] .lock-target {
   opacity: 1;
 }
 
+.aim-overlay[data-target-lock="locked"] .lock-target {
+  --target-color: rgb(134 239 172 / 96%);
+  --target-glow: rgb(134 239 172 / 48%);
+}
+
 .lock-target i {
   position: absolute;
-  width: 17px;
-  height: 17px;
-  border-color: var(--reticle-color);
-  filter: drop-shadow(0 0 8px var(--reticle-glow));
+  width: 21px;
+  height: 21px;
+  border-color: var(--target-color);
+  filter: drop-shadow(0 0 9px var(--target-glow));
 }
 
 .lock-target i:nth-child(1) {
@@ -644,6 +638,58 @@ meter {
   bottom: 0;
   border-left: 2px solid;
   border-bottom: 2px solid;
+}
+
+.lock-target::before {
+  position: absolute;
+  left: 50%;
+  bottom: -12px;
+  width: calc(100% * var(--target-progress, 0));
+  height: 3px;
+  background: var(--target-color);
+  box-shadow: 0 0 10px var(--target-glow);
+  content: "";
+  transform: translateX(-50%);
+}
+
+.lock-target strong,
+.lock-target span,
+.lock-target em,
+.lock-target small {
+  position: absolute;
+  color: var(--target-color);
+  font-style: normal;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.lock-target strong {
+  left: 50%;
+  bottom: calc(100% + 8px);
+  max-width: 180px;
+  overflow: hidden;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+}
+
+.lock-target span {
+  left: calc(100% + 8px);
+  top: 8px;
+  font-size: 0.72rem;
+}
+
+.lock-target em {
+  left: calc(100% + 8px);
+  bottom: 8px;
+  font-size: 0.62rem;
+}
+
+.lock-target small {
+  left: 50%;
+  top: calc(100% + 9px);
+  font-size: 0.64rem;
+  transform: translateX(-50%);
 }
 
 .combat-feedback {

@@ -269,8 +269,14 @@ export class OceanSystem {
       const island = TERRAIN_ISLANDS[i];
       const localX = worldX - island.x;
       const localZ = worldZ - island.z;
-      const normalizedX = localX / (island.beachRadius * island.beachScaleX);
-      const normalizedZ = localZ / (island.beachRadius * island.beachScaleZ);
+      const shoreX = island.beachRadius * island.beachScaleX;
+      const shoreZ = island.beachRadius * island.beachScaleZ;
+      if (Math.abs(localX) > shoreX * 1.34 || Math.abs(localZ) > shoreZ * 1.34) {
+        continue;
+      }
+
+      const normalizedX = localX / shoreX;
+      const normalizedZ = localZ / shoreZ;
       const shorelineDistance = Math.hypot(normalizedX, normalizedZ);
       if (shorelineDistance < 1.34) {
         damping = Math.min(damping, smoothstep(0.98, 1.34, shorelineDistance));
