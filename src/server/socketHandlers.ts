@@ -6,6 +6,7 @@ import type {
   RoomJoinedPayload,
   RoundEndedPayload,
   RoomState,
+  BotSkill,
   ServerToClientEvents,
   StateSnapshotPayload
 } from "../shared/types.js";
@@ -57,10 +58,11 @@ export function registerGameSocketHandlers(io: GameServer, manager: GameRoomMana
 
     socket.on("bot:add", (payload = {}) => {
       const count = readBotCount(payload);
+      const skill = readBotSkill(payload);
       let latestRoom: RoomState | undefined;
 
       for (let i = 0; i < count; i += 1) {
-        const result = manager.addBot(socket.id);
+        const result = manager.addBot(socket.id, Date.now(), skill);
         if (!result.ok) {
           emitError(socket, result.message);
           break;
@@ -181,6 +183,11 @@ function readPlayerId(payload: unknown): string {
 function readBotCount(payload: unknown): number {
   const value = readPayloadValue(payload, "count");
   return typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(6, Math.floor(value))) : 1;
+}
+
+function readBotSkill(payload: unknown): BotSkill {
+  const value = readPayloadValue(payload, "skill");
+  return value === "ace" ? "ace" : "regular";
 }
 
 function readPayloadValue(payload: unknown, key: string): unknown {

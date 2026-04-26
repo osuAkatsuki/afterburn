@@ -159,8 +159,14 @@ describe("GameRoomManager", () => {
     if (!bot.ok) return;
 
     expect(bot.room.players[bot.playerId].isBot).toBe(true);
+    expect(bot.room.players[bot.playerId].botSkill).toBe("regular");
     expect(bot.room.players[bot.playerId].ready).toBe(true);
     expect(bot.room.players[bot.playerId].name).toBe("Bandit 1");
+
+    const aceBot = manager.addBot("host", 1150, "ace");
+    expect(aceBot.ok).toBe(true);
+    if (!aceBot.ok) return;
+    expect(aceBot.room.players[aceBot.playerId].botSkill).toBe("ace");
 
     const guest = manager.joinRoom("BOTS1", "guest", "Guest", 1200, "guest-client");
     expect(guest.ok).toBe(true);

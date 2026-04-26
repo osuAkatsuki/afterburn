@@ -11,7 +11,7 @@ import {
   startRound,
   stepRoom
 } from "../shared/simulation.js";
-import type { CombatEvent, InputFrame, RoomState } from "../shared/types.js";
+import type { BotSkill, CombatEvent, InputFrame, RoomState } from "../shared/types.js";
 import { createBotInput } from "./botPilot.js";
 
 export type JoinResult =
@@ -95,7 +95,7 @@ export class GameRoomManager {
     return { ok: true, room, playerId };
   }
 
-  addBot(socketId: string, now = Date.now()): JoinResult {
+  addBot(socketId: string, now = Date.now(), skill: BotSkill = "regular"): JoinResult {
     const hostId = this.resolvePlayerId(socketId);
     const room = this.getRoomForPlayer(hostId);
     if (!room) {
@@ -117,6 +117,7 @@ export class GameRoomManager {
     const botId = this.uniqueBotId(room);
     const player = createPlayer(botId, uniquePlayerName(room, nextBotName(room), botId), Object.keys(room.players).length, now);
     player.isBot = true;
+    player.botSkill = skill;
     player.ready = true;
     player.latencyMs = 0;
     addPlayerToRoom(room, player);

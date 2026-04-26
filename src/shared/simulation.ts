@@ -15,12 +15,10 @@ import {
   FLARE_SPEED,
   FLARE_TTL_SECONDS,
   GRAVITY_ACCELERATION,
+  GUN_AMMO_PER_ROUND,
   GUN_CONVERGENCE_DISTANCE,
   GUN_COOLDOWN_SECONDS,
   GUN_DAMAGE,
-  GUN_HEAT_DECAY_PER_SECOND,
-  GUN_HEAT_MAX,
-  GUN_HEAT_PER_SHOT,
   LIFT_ACCELERATION,
   MAX_AIRFRAME_SPEED,
   MAX_LIFT_ACCELERATION,
@@ -179,7 +177,7 @@ export function createPlayer(id: string, name: string, index = 0, now = Date.now
     score: 0,
     deaths: 0,
     latencyMs: 0,
-    gunHeat: 0,
+    gunAmmoRemaining: GUN_AMMO_PER_ROUND,
     gunCooldown: 0,
     missilesRemaining: MISSILE_AMMO_PER_ROUND,
     flaresRemaining: FLARE_AMMO_PER_ROUND,
@@ -230,7 +228,7 @@ export function resetPlayerForRound(player: PlayerState, index: number, now: num
   player.health = PLAYER_HEALTH;
   player.score = 0;
   player.deaths = 0;
-  player.gunHeat = 0;
+  player.gunAmmoRemaining = GUN_AMMO_PER_ROUND;
   player.gunCooldown = 0;
   player.missilesRemaining = MISSILE_AMMO_PER_ROUND;
   player.flaresRemaining = FLARE_AMMO_PER_ROUND;
@@ -368,7 +366,6 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
   player.gunCooldown = Math.max(0, player.gunCooldown - dt);
   player.missileCooldown = Math.max(0, player.missileCooldown - dt);
   player.flareCooldown = Math.max(0, player.flareCooldown - dt);
-  player.gunHeat = Math.max(0, player.gunHeat - GUN_HEAT_DECAY_PER_SECOND * dt);
 
   const previousPosition = cloneVec3(player.position);
   applyPlayerFlightStep(player, player.input, dt);
@@ -384,7 +381,7 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
 
   const weaponsEnabled = !isPlayerSpawnProtected(player, now);
 
-  if (weaponsEnabled && player.input.fireGun && player.gunCooldown <= 0 && player.gunHeat < GUN_HEAT_MAX) {
+  if (weaponsEnabled && player.input.fireGun && player.gunCooldown <= 0 && player.gunAmmoRemaining > 0) {
     fireGun(room, player, now, events);
   }
 
@@ -595,7 +592,7 @@ function fireGun(room: RoomState, player: PlayerState, now: number, events: Comb
     createdAt: now
   };
   player.gunCooldown = GUN_COOLDOWN_SECONDS;
-  player.gunHeat = clamp(player.gunHeat + GUN_HEAT_PER_SHOT, 0, GUN_HEAT_MAX);
+  player.gunAmmoRemaining = Math.max(0, player.gunAmmoRemaining - 1);
   events.push({ type: "launch", roomId: room.id, playerId: player.id, weapon: "bullet" });
 }
 
@@ -1077,7 +1074,7 @@ function respawnPlayer(room: RoomState, player: PlayerState, index: number, now:
   player.velocity = scale(playerForward(player), MIN_SPEED);
   player.throttle = CRUISE_THROTTLE;
   player.health = PLAYER_HEALTH;
-  player.gunHeat = 0;
+  player.gunAmmoRemaining = GUN_AMMO_PER_ROUND;
   player.gunCooldown = 0;
   player.missilesRemaining = MISSILE_AMMO_PER_ROUND;
   player.flaresRemaining = FLARE_AMMO_PER_ROUND;

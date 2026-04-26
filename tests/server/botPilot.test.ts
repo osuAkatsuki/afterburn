@@ -55,6 +55,25 @@ describe("bot pilot", () => {
     expect(input.fireFlare).toBe(true);
   });
 
+  it("lets regular bots miss some valid missile flare opportunities", () => {
+    const { room, bot } = botRoom();
+    addThreatMissile(room, bot, "late-threat", 1000, 50);
+
+    const input = createBotInput(room, bot, 3000);
+
+    expect(input.fireFlare).toBe(false);
+  });
+
+  it("lets ace bots defend against the same missile more reliably", () => {
+    const { room, bot } = botRoom();
+    bot.botSkill = "ace";
+    addThreatMissile(room, bot, "late-threat", 1000, 50);
+
+    const input = createBotInput(room, bot, 3000);
+
+    expect(input.fireFlare).toBe(true);
+  });
+
   it("uses seeker gimbal aim against off-nose targets", () => {
     const { room, bot, target } = botRoom();
     bot.position = { x: 0, y: 260, z: 0 };

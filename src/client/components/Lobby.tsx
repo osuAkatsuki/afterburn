@@ -1,4 +1,4 @@
-import type { RoomState } from "../../shared/types.js";
+import type { BotSkill, RoomState } from "../../shared/types.js";
 import { playerStatusLabel } from "../utils/format.js";
 
 type LobbyProps = {
@@ -15,7 +15,7 @@ type LobbyProps = {
   onJoinRoom: () => void;
   onShareRoom: () => void;
   onReadyChange: (ready: boolean) => void;
-  onAddBot: () => void;
+  onAddBot: (skill?: BotSkill) => void;
   onRemoveBot: (playerId: string) => void;
   onStartRound: (force?: boolean) => void;
 };
@@ -102,9 +102,14 @@ export function Lobby({
                 Share Link
               </button>
               {canEditBots && (
-                <button type="button" onClick={onAddBot} disabled={totalPlayers >= 6}>
-                  Add Bot
-                </button>
+                <>
+                  <button type="button" onClick={() => onAddBot("regular")} disabled={totalPlayers >= 6}>
+                    Add Regular
+                  </button>
+                  <button type="button" onClick={() => onAddBot("ace")} disabled={totalPlayers >= 6}>
+                    Add Ace
+                  </button>
+                </>
               )}
               {isHost && allReady ? (
                 <button type="button" onClick={() => onStartRound(false)}>

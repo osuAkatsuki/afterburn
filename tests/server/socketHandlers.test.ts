@@ -142,11 +142,12 @@ describe("socketHandlers", () => {
     await hostInitialSnapshot;
 
     const addSnapshot = waitForEvent(host, "state:snapshot");
-    host.emit("bot:add", {});
+    host.emit("bot:add", { skill: "ace" });
 
     const withBot = await addSnapshot;
     const bot = Object.values(withBot.room.players).find((player) => player.isBot);
     expect(bot?.name).toBe("Bandit 1");
+    expect(bot?.botSkill).toBe("ace");
     expect(bot?.ready).toBe(true);
 
     const removeSnapshot = waitForEvent(host, "state:snapshot");

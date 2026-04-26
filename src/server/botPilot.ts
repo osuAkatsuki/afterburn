@@ -21,7 +21,7 @@ import {
   wrapAngle
 } from "../shared/math.js";
 import { isPlayerSpawnProtected, neutralInput } from "../shared/simulation.js";
-import type { InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "../shared/types.js";
+import type { BotSkill, InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "../shared/types.js";
 
 const TARGET_LEAD_SECONDS = 0.75;
 const SAFE_ALTITUDE = 115;
@@ -38,14 +38,40 @@ const BOT_OFFSET_PURSUIT_SIDE = 260;
 const BOT_GUN_RANGE = GUN_CONVERGENCE_DISTANCE * 0.95;
 const BOT_GUN_ALIGNMENT = 0.975;
 const BOT_MISSILE_ALIGNMENT = 0.94;
-const BOT_DEFENSIVE_RANGE = 920;
 const BOT_EVADE_SIDE = 720;
 const BOT_EVADE_FORWARD = 180;
 const BOT_EVADE_CLIMB = 180;
-const BOT_FLARE_REACTION_MIN_MS = 420;
-const BOT_FLARE_REACTION_SPREAD_MS = 680;
-const BOT_FLARE_DEPLOY_MIN_RANGE = 220;
-const BOT_FLARE_DEPLOY_SPREAD_RANGE = 210;
+
+type BotSkillProfile = {
+  defensiveRange: number;
+  evasionNoise: number;
+  flareDetectionChance: number;
+  flareReactionMinMs: number;
+  flareReactionSpreadMs: number;
+  flareDeployMinRange: number;
+  flareDeploySpreadRange: number;
+};
+
+const BOT_SKILL_PROFILES: Record<BotSkill, BotSkillProfile> = {
+  regular: {
+    defensiveRange: 780,
+    evasionNoise: 0.32,
+    flareDetectionChance: 0.68,
+    flareReactionMinMs: 650,
+    flareReactionSpreadMs: 950,
+    flareDeployMinRange: 80,
+    flareDeploySpreadRange: 300
+  },
+  ace: {
+    defensiveRange: 920,
+    evasionNoise: 0.08,
+    flareDetectionChance: 0.99,
+    flareReactionMinMs: 420,
+    flareReactionSpreadMs: 680,
+    flareDeployMinRange: 220,
+    flareDeploySpreadRange: 210
+  }
+};
 
 type BotPlan = {
   point: Vec3;
@@ -62,8 +88,9 @@ export function createBotInput(room: RoomState, bot: PlayerState, now: number): 
 
   const target = findBotTarget(room, bot);
   const recoveryPoint = getRecoveryPoint(bot);
-  const threatMissile = findIncomingMissile(room, bot);
-  const defensivePoint = threatMissile && !recoveryPoint ? getMissileEvasionPoint(bot, threatMissile) : undefined;
+  const profile = botProfile(bot);
+  const threatMissile = findIncomingMissile(room, bot, profile);
+  const defensivePoint = threatMissile && !recoveryPoint ? getMissileEvasionPoint(bot, threatMissile, profile) : undefined;
   const plan = target && !defensivePoint ? getEngagementPlan(bot, target) : undefined;
   const aimPoint = recoveryPoint ?? defensivePoint ?? plan?.point;
   const steering = aimPoint ? steerToward(bot, aimPoint) : patrol(bot);
@@ -79,7 +106,7 @@ export function createBotInput(room: RoomState, bot: PlayerState, now: number): 
   input.aimDirection = target ? getSeekerAimDirection(bot, target) : undefined;
   input.fireGun = Boolean(!breakingAway && !defending && target && targetRange < BOT_GUN_RANGE && targetAhead > BOT_GUN_ALIGNMENT);
   input.fireMissile = Boolean(!breakingAway && !defending && target && bot.missileLockAcquired && targetRange < MISSILE_LOCK_RANGE && targetAhead > BOT_MISSILE_ALIGNMENT);
-  input.fireFlare = shouldDeployFlare(room, bot, now);
+  input.fireFlare = shouldDeployFlare(room, bot, now, profile);
 
   return input;
 }
@@ -214,15 +241,15 @@ function getSeekerAimDirection(bot: PlayerState, target: PlayerState): Vec3 | un
   return dot(botForward(bot), direction) >= MISSILE_SEEKER_GIMBAL_DOT ? direction : undefined;
 }
 
-function findIncomingMissile(room: RoomState, bot: PlayerState): ProjectileState | undefined {
+function findIncomingMissile(room: RoomState, bot: PlayerState, profile: BotSkillProfile): ProjectileState | undefined {
   return Object.values(room.projectiles)
     .filter((projectile) => projectile.type === "missile" && projectile.targetType === "player" && projectile.targetId === bot.id)
     .map((projectile) => ({ projectile, range: projectileClosingRange(projectile, bot) }))
-    .filter(({ range }) => range < BOT_DEFENSIVE_RANGE)
+    .filter(({ range }) => range < profile.defensiveRange)
     .sort((a, b) => a.range - b.range)[0]?.projectile;
 }
 
-function getMissileEvasionPoint(bot: PlayerState, missile: ProjectileState): Vec3 {
+function getMissileEvasionPoint(bot: PlayerState, missile: ProjectileState, profile: BotSkillProfile): Vec3 {
   const orientation = bot.orientation ?? quaternionFromRotation(bot.rotation);
   const forward = normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, orientation));
   const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
@@ -230,7 +257,9 @@ function getMissileEvasionPoint(bot: PlayerState, missile: ProjectileState): Vec
   const horizontalMissileRight = normalize({ x: -missileForward.z, y: 0, z: missileForward.x });
   const fallbackRight = length(horizontalMissileRight) > 0.001 ? horizontalMissileRight : right;
   const side = deterministicUnit(bot.id, missile.id, "evade") >= 0.5 ? 1 : -1;
-  const lateral = dot(fallbackRight, right) >= 0 ? fallbackRight : scale(fallbackRight, -1);
+  const lateralBase = dot(fallbackRight, right) >= 0 ? fallbackRight : scale(fallbackRight, -1);
+  const noise = (deterministicUnit(bot.id, missile.id, "evade-noise") * 2 - 1) * profile.evasionNoise;
+  const lateral = normalize(add(lateralBase, scale(forward, noise)));
 
   return add(add(add(bot.position, scale(lateral, side * BOT_EVADE_SIDE)), scale(forward, BOT_EVADE_FORWARD)), {
     x: 0,
@@ -260,7 +289,7 @@ function steerToward(bot: PlayerState, point: Vec3): { pitch: number; yaw: numbe
   };
 }
 
-function shouldDeployFlare(room: RoomState, bot: PlayerState, now: number): boolean {
+function shouldDeployFlare(room: RoomState, bot: PlayerState, now: number, profile: BotSkillProfile): boolean {
   if (bot.flaresRemaining <= 0 || bot.flareCooldown > 0) {
     return false;
   }
@@ -268,15 +297,23 @@ function shouldDeployFlare(room: RoomState, bot: PlayerState, now: number): bool
   return Object.values(room.projectiles)
     .filter((projectile) => projectile.type === "missile" && projectile.targetId === bot.id)
     .some((projectile) => {
+      if (deterministicUnit(bot.id, projectile.id, "detect") > profile.flareDetectionChance) {
+        return false;
+      }
+
       const age = now - projectile.createdAt;
-      const reactionDelay = BOT_FLARE_REACTION_MIN_MS + deterministicUnit(bot.id, projectile.id, "react") * BOT_FLARE_REACTION_SPREAD_MS;
+      const reactionDelay = profile.flareReactionMinMs + deterministicUnit(bot.id, projectile.id, "react") * profile.flareReactionSpreadMs;
       if (age < reactionDelay) {
         return false;
       }
 
-      const deployRange = BOT_FLARE_DEPLOY_MIN_RANGE + deterministicUnit(bot.id, projectile.id, "range") * BOT_FLARE_DEPLOY_SPREAD_RANGE;
+      const deployRange = profile.flareDeployMinRange + deterministicUnit(bot.id, projectile.id, "range") * profile.flareDeploySpreadRange;
       return projectileClosingRange(projectile, bot) < deployRange;
     });
+}
+
+function botProfile(bot: PlayerState): BotSkillProfile {
+  return BOT_SKILL_PROFILES[bot.botSkill ?? "regular"];
 }
 
 function projectileClosingRange(projectile: ProjectileState, bot: PlayerState): number {

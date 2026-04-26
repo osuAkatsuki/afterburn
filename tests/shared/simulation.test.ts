@@ -13,6 +13,7 @@ import {
   FLARE_MIN_HEAT_SIGNATURE,
   FLARE_PEAK_HEAT_SIGNATURE,
   FLARE_TTL_SECONDS,
+  GUN_AMMO_PER_ROUND,
   GUN_CONVERGENCE_DISTANCE,
   JET_AFTERBURNER_HEAT_MULTIPLIER,
   JET_ENGINE_HEAT_SIGNATURE,
@@ -106,6 +107,8 @@ describe("shared simulation", () => {
     expect(MISSILE_LOCK_RANGE).toBeCloseTo(MISSILE_SPEED * MISSILE_TTL_SECONDS * 0.9);
     expect(FLARE_DECOY_RANGE).toBeGreaterThan(400);
     expect(FLARE_COOLDOWN_SECONDS).toBeLessThan(0.25);
+    expect(FLARE_AMMO_PER_ROUND).toBe(24);
+    expect(GUN_AMMO_PER_ROUND).toBe(240);
     expect(FLARE_PEAK_HEAT_SIGNATURE).toBeGreaterThan(JET_ENGINE_HEAT_SIGNATURE);
     expect(FLARE_MIN_HEAT_SIGNATURE).toBeLessThan(JET_ENGINE_HEAT_SIGNATURE);
     expect(FLARE_HEAT_DECAY_SECONDS).toBeLessThan(FLARE_TTL_SECONDS);
@@ -895,7 +898,7 @@ describe("shared simulation", () => {
     expect(attacker.missileLockAcquired).toBe(false);
   });
 
-  it("limits missiles and flares while alive and reloads them on respawn", () => {
+  it("limits gun rounds, missiles, and flares while alive and reloads them on respawn", () => {
     const room = twoPlayerRoom();
     const attacker = room.players.p1;
     const target = room.players.p2;
@@ -904,6 +907,17 @@ describe("shared simulation", () => {
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
     target.position = { x: 0, y: 160, z: 240 };
     setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
+
+    attacker.gunAmmoRemaining = 1;
+    setPlayerInput(attacker, { seq: 10, fireGun: true });
+    stepRoom(room, 1 / 30, 2300);
+    expect(attacker.gunAmmoRemaining).toBe(0);
+    expect(Object.values(room.projectiles).filter((projectile) => projectile.type === "bullet")).toHaveLength(1);
+
+    attacker.gunCooldown = 0;
+    setPlayerInput(attacker, { seq: 11, fireGun: true });
+    stepRoom(room, 1 / 30, 2333);
+    expect(Object.values(room.projectiles).filter((projectile) => projectile.type === "bullet")).toHaveLength(1);
 
     attacker.missilesRemaining = 1;
     attacker.missileLockTargetId = target.id;
@@ -941,11 +955,14 @@ describe("shared simulation", () => {
     expect(target.status).toBe("alive");
     expect(target.flaresRemaining).toBe(FLARE_AMMO_PER_ROUND);
     expect(target.missilesRemaining).toBe(MISSILE_AMMO_PER_ROUND);
+    expect(target.gunAmmoRemaining).toBe(GUN_AMMO_PER_ROUND);
     expect(target.flareCooldown).toBe(0);
     expect(target.missileCooldown).toBe(0);
     expect(attacker.missilesRemaining).toBe(0);
+    expect(attacker.gunAmmoRemaining).toBe(0);
 
     startRound(room, 5000);
+    expect(room.players.p1.gunAmmoRemaining).toBe(GUN_AMMO_PER_ROUND);
     expect(room.players.p1.missilesRemaining).toBe(MISSILE_AMMO_PER_ROUND);
     expect(room.players.p1.flaresRemaining).toBe(FLARE_AMMO_PER_ROUND);
   });

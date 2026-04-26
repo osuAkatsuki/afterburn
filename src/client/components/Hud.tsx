@@ -1,4 +1,5 @@
 import type { PlayerState, RoomState } from "../../shared/types.js";
+import { GUN_AMMO_PER_ROUND } from "../../shared/constants.js";
 import { altitudeLabel, flareReadyRatio, missileReadyRatio, roundTimeLabel, speedLabel } from "../utils/format.js";
 
 type HudProps = {
@@ -38,8 +39,8 @@ export function Hud({ room, localPlayer }: HudProps) {
           <meter min="0" max="100" value={localPlayer?.health ?? 100} />
         </label>
         <label>
-          <span>Heat</span>
-          <meter min="0" max="1" value={localPlayer?.gunHeat ?? 0} />
+          <span>GUN {localPlayer?.gunAmmoRemaining ?? 0}</span>
+          <meter min="0" max="1" value={(localPlayer?.gunAmmoRemaining ?? GUN_AMMO_PER_ROUND) / GUN_AMMO_PER_ROUND} />
         </label>
         <label>
           <span>A/B</span>

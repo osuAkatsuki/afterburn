@@ -16,6 +16,7 @@ import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
 import { ClientWorldPresenter } from "./net/ClientWorldPresenter.js";
 import { getSnapshotInterpolationDelayMs } from "./net/SnapshotBuffer.js";
+import type { BotSkill } from "../shared/types.js";
 
 const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
 
@@ -147,8 +148,8 @@ export function App() {
     emitSetReady(ready);
   }, [emitSetReady]);
 
-  const addBot = useCallback(() => {
-    emitAddBot();
+  const addBot = useCallback((skill: BotSkill = "regular") => {
+    emitAddBot(skill);
   }, [emitAddBot]);
 
   const removeBot = useCallback((botId: string) => {

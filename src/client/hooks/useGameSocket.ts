@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
   CombatEvent,
+  BotSkill,
   ClientToServerEvents,
   InputFrame,
   RoomErrorPayload,
@@ -132,8 +133,8 @@ export function useGameSocket() {
     socketRef.current?.emit("player:ready", { ready });
   }, []);
 
-  const addBot = useCallback(() => {
-    socketRef.current?.emit("bot:add", { count: 1 });
+  const addBot = useCallback((skill: BotSkill = "regular") => {
+    socketRef.current?.emit("bot:add", { count: 1, skill });
   }, []);
 
   const removeBot = useCallback((playerId: string) => {

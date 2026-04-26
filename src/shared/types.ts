@@ -21,6 +21,7 @@ export type PlayerStatus = "lobby" | "alive" | "dead";
 export type RoomPhase = "lobby" | "playing" | "ended";
 export type ProjectileType = "bullet" | "missile" | "flare";
 export type MissileTargetType = "player" | "flare";
+export type BotSkill = "regular" | "ace";
 
 export type InputFrame = {
   seq: number;
@@ -41,6 +42,7 @@ export type PlayerState = {
   name: string;
   color: string;
   isBot: boolean;
+  botSkill?: BotSkill;
   ready: boolean;
   status: PlayerStatus;
   position: Vec3;
@@ -52,7 +54,7 @@ export type PlayerState = {
   score: number;
   deaths: number;
   latencyMs: number;
-  gunHeat: number;
+  gunAmmoRemaining: number;
   gunCooldown: number;
   missilesRemaining: number;
   flaresRemaining: number;
@@ -183,6 +185,7 @@ export type RoundStartPayload = {
 
 export type BotAddPayload = {
   count?: number;
+  skill?: BotSkill;
 };
 
 export type BotRemovePayload = {
