@@ -66,6 +66,17 @@ export function combatFeedbackItemsForNotice(
   return items;
 }
 
+export function combatFeedbackItemsForNotices(
+  notices: CombatNotice[],
+  playerId: string,
+  playerNames: Record<string, string>
+): CombatFeedbackItem[] {
+  const items = notices.flatMap((notice) => combatFeedbackItemsForNotice(notice, playerId, playerNames));
+  const hasLocalDestruction = items.some((item) => item.kind === "damage" && item.text === "DESTROYED");
+
+  return hasLocalDestruction ? items.filter((item) => item.kind !== "damage" || item.text === "DESTROYED") : items;
+}
+
 export function unprocessedCombatNotices(notices: CombatNotice[], lastProcessedId: number): CombatNotice[] {
   return notices.filter((notice) => notice.id > lastProcessedId);
 }

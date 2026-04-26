@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { combatFeedbackItemsForNotice, unprocessedCombatNotices, type CombatNotice } from "../../src/client/utils/combatFeedback.js";
+import {
+  combatFeedbackItemsForNotice,
+  combatFeedbackItemsForNotices,
+  unprocessedCombatNotices,
+  type CombatNotice
+} from "../../src/client/utils/combatFeedback.js";
 
 describe("combat feedback", () => {
   it("keeps back-to-back hit and kill notices instead of collapsing them", () => {
@@ -67,5 +72,36 @@ describe("combat feedback", () => {
 
     expect(combatFeedbackItemsForNotice(hitNotice, "p2", {}).map((item) => item.text)).toEqual(["-35"]);
     expect(combatFeedbackItemsForNotice(killNotice, "p2", {}).map((item) => item.text)).toEqual(["DESTROYED"]);
+  });
+
+  it("suppresses lethal damage numbers when destruction is shown in the same batch", () => {
+    const notices: CombatNotice[] = [
+      {
+        id: 1,
+        event: {
+          type: "hit",
+          roomId: "ROOM1",
+          attackerId: "p1",
+          victimId: "p2",
+          damage: 70,
+          weapon: "missile"
+        }
+      },
+      {
+        id: 2,
+        event: {
+          type: "kill",
+          roomId: "ROOM1",
+          attackerId: "p1",
+          victimId: "p2"
+        }
+      }
+    ];
+
+    expect(combatFeedbackItemsForNotices(notices, "p2", {}).map((item) => item.text)).toEqual(["DESTROYED"]);
+    expect(combatFeedbackItemsForNotices(notices, "p1", { p2: "Bandit" }).map((item) => item.text)).toEqual([
+      "HIT Bandit +70",
+      "KILL Bandit"
+    ]);
   });
 });
