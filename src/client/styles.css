@@ -79,6 +79,41 @@ input:focus {
   cursor: crosshair;
 }
 
+.terrain-qa-shell {
+  width: 100%;
+  height: 100%;
+}
+
+.terrain-qa-overlay {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 4px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid rgb(139 233 255 / 26%);
+  border-radius: 6px;
+  color: rgb(226 250 255 / 94%);
+  background: rgb(2 10 22 / 58%);
+  box-shadow: inset 0 0 18px rgb(139 233 255 / 7%);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.terrain-qa-overlay strong {
+  color: var(--hud-cyan);
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.terrain-qa-overlay span {
+  color: rgb(190 242 255 / 76%);
+  font-size: 0.72rem;
+}
+
 .debug-overlay {
   position: fixed;
   inset: 76px 18px auto auto;

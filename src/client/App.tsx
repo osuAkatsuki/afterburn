@@ -10,6 +10,7 @@ import { Radar } from "./components/Radar.js";
 import { Reticle } from "./components/Reticle.js";
 import { Scoreboard } from "./components/Scoreboard.js";
 import { TacticalWarnings } from "./components/TacticalWarnings.js";
+import { TerrainQaCanvas } from "./components/TerrainQaCanvas.js";
 import { DogfightScene } from "./game/DogfightScene.js";
 import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
@@ -18,9 +19,15 @@ import { ClientWorldPresenter } from "./net/ClientWorldPresenter.js";
 import { getSnapshotInterpolationDelayMs } from "./net/SnapshotBuffer.js";
 import type { BotSkill } from "../shared/types.js";
 
-const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
+const urlParams = new URLSearchParams(window.location.search);
+const urlRoom = urlParams.get("room")?.toUpperCase() ?? "";
+const terrainQaEnabled = urlParams.has("terrainQa");
 
 export function App() {
+  if (terrainQaEnabled) {
+    return <TerrainQaCanvas />;
+  }
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);

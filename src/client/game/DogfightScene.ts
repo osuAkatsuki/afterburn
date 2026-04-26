@@ -18,6 +18,11 @@ import { OceanSystem } from "./world/OceanSystem.js";
 import { SkySystem } from "./world/SkySystem.js";
 import { TerrainSystem } from "./world/TerrainSystem.js";
 
+export type FreeCameraPose = {
+  position: Vec3;
+  target: Vec3;
+};
+
 export type SceneDebugStats = {
   objects: number;
   jets: number;
@@ -61,6 +66,7 @@ export class DogfightScene {
   private state: RoomState | undefined;
   private localPlayerId = "";
   private cameraLook: CameraLookInput = { active: false, yaw: 0, pitch: 0 };
+  private freeCameraPose: FreeCameraPose | undefined;
 
   private readonly resize = () => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -108,6 +114,10 @@ export class DogfightScene {
     this.cameraLook = look;
   }
 
+  setFreeCameraPose(pose: FreeCameraPose | undefined): void {
+    this.freeCameraPose = pose;
+  }
+
   computeMouseAimAxes(aim: MouseAimPoint): FlightAxes | undefined {
     const local = this.state?.players[this.localPlayerId];
     const localJet = this.jetRenderer.getJet(this.localPlayerId);
@@ -141,7 +151,11 @@ export class DogfightScene {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.oceanSystem.update(now);
     this.jetRenderer.update(dt, this.state, this.localPlayerId);
-    this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId), this.cameraLook);
+    if (this.freeCameraPose) {
+      this.applyFreeCameraPose();
+    } else {
+      this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId), this.cameraLook);
+    }
     this.terrainSystem.update(this.camera.position);
     this.skySystem.update(this.camera);
     this.reticleProjector.update(this.state, this.localPlayerId);
@@ -194,5 +208,15 @@ export class DogfightScene {
     this.oceanSystem.initialize();
     this.smokeSystem.initialize();
     this.terrainSystem.initialize();
+  }
+
+  private applyFreeCameraPose(): void {
+    if (!this.freeCameraPose) {
+      return;
+    }
+
+    const { position, target } = this.freeCameraPose;
+    this.camera.position.set(position.x, position.y, position.z);
+    this.camera.lookAt(target.x, target.y, target.z);
   }
 }
