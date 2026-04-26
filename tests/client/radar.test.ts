@@ -18,10 +18,10 @@ function alivePlayer(id: string, x: number, z: number): PlayerState {
 }
 
 describe("radarContacts", () => {
-  it("projects contacts into the local player's heading frame", () => {
+  it("projects contacts into the local player's screen-facing heading frame", () => {
     const local = alivePlayer("local", 0, 0);
-    const ahead = alivePlayer("ahead", 0, 450);
-    const right = alivePlayer("right", 450, 0);
+    const ahead = alivePlayer("ahead", 0, RADAR_RANGE / 2);
+    const right = alivePlayer("right", RADAR_RANGE / 2, 0);
 
     const contacts = radarContacts([local, ahead, right], local);
     const aheadContact = contacts.find((contact) => contact.player.id === "ahead");
@@ -29,15 +29,15 @@ describe("radarContacts", () => {
 
     expect(aheadContact?.x).toBeCloseTo(0);
     expect(aheadContact?.y).toBeCloseTo(-RADAR_RADIUS_PX / 2);
-    expect(rightContact?.x).toBeCloseTo(RADAR_RADIUS_PX / 2);
+    expect(rightContact?.x).toBeCloseTo(-RADAR_RADIUS_PX / 2);
     expect(rightContact?.y).toBeCloseTo(0);
   });
 
-  it("rotates with the local player's yaw instead of staying world-fixed", () => {
+  it("rotates with the local player's yaw while preserving the screen-facing horizontal sign", () => {
     const local = alivePlayer("local", 0, 0);
     setRotation(local, { pitch: 0, yaw: Math.PI / 2, roll: 0 });
-    const east = alivePlayer("east", 450, 0);
-    const north = alivePlayer("north", 0, 450);
+    const east = alivePlayer("east", RADAR_RANGE / 2, 0);
+    const north = alivePlayer("north", 0, RADAR_RANGE / 2);
 
     const contacts = radarContacts([local, east, north], local);
     const eastContact = contacts.find((contact) => contact.player.id === "east");
@@ -45,7 +45,7 @@ describe("radarContacts", () => {
 
     expect(eastContact?.x).toBeCloseTo(0);
     expect(eastContact?.y).toBeCloseTo(-RADAR_RADIUS_PX / 2);
-    expect(northContact?.x).toBeCloseTo(-RADAR_RADIUS_PX / 2);
+    expect(northContact?.x).toBeCloseTo(RADAR_RADIUS_PX / 2);
     expect(northContact?.y).toBeCloseTo(0);
   });
 

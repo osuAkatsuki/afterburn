@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react";
 import type { PlayerState, RoomState } from "../../shared/types.js";
+import { getIncomingMissileCue } from "../utils/missileThreat.js";
 
 type TacticalWarningsProps = {
   room?: RoomState;
@@ -17,13 +19,13 @@ export function TacticalWarnings({ room, localPlayer }: TacticalWarningsProps) {
 
   const outOfBoundsSeconds = Math.ceil(localPlayer.outOfBoundsRemainingMs / 1000);
   const protectionSeconds = Math.ceil(localPlayer.spawnProtectionRemainingMs / 1000);
-  const incomingMissile = Object.values(room.projectiles).some(
-    (projectile) => projectile.type === "missile" && projectile.targetType === "player" && projectile.targetId === localPlayer.id
-  );
+  const incomingMissileCue = getIncomingMissileCue(room, localPlayer);
+  const incomingMissile = Boolean(incomingMissileCue);
   const lockedByEnemy = Object.values(room.players).some(
     (player) =>
       player.id !== localPlayer.id &&
       player.status === "alive" &&
+      player.missilesRemaining > 0 &&
       player.missileLockAcquired &&
       player.missileLockTargetId === localPlayer.id
   );
@@ -40,6 +42,12 @@ export function TacticalWarnings({ room, localPlayer }: TacticalWarningsProps) {
 
   return (
     <section className="tactical-warnings" aria-live="assertive">
+      {incomingMissileCue ? (
+        <div className="missile-direction" style={{ "--missile-bearing": `${incomingMissileCue.bearingRadians}rad` } as CSSProperties}>
+          <i aria-hidden="true" />
+          <span>MSL {incomingMissileCue.clockLabel}</span>
+        </div>
+      ) : null}
       {warnings.map((warning) => (
         <div className={`tactical-warning ${warning.tone ?? ""}`} key={warning.text}>
           {warning.text}

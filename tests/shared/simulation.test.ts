@@ -6,16 +6,32 @@ import {
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
   BULLET_TTL_SECONDS,
+  FLARE_DECOY_RANGE,
   FLARE_AMMO_PER_ROUND,
+  FLARE_COOLDOWN_SECONDS,
+  FLARE_HEAT_DECAY_SECONDS,
+  FLARE_MIN_HEAT_SIGNATURE,
+  FLARE_PEAK_HEAT_SIGNATURE,
+  FLARE_TTL_SECONDS,
+  GUN_CONVERGENCE_DISTANCE,
+  JET_AFTERBURNER_HEAT_MULTIPLIER,
+  JET_ENGINE_HEAT_SIGNATURE,
   MAX_ALTITUDE,
   MAX_SPEED,
   MISSILE_AMMO_PER_ROUND,
+  MISSILE_ARMING_DISTANCE,
   MISSILE_BLAST_RADIUS,
   MISSILE_LOCK_BREAK_DOT,
   MISSILE_LOCK_DOT,
+  MISSILE_LOCK_RANGE,
   MISSILE_LOCK_SECONDS,
   MISSILE_DAMAGE,
+  MISSILE_HIT_RADIUS,
+  MISSILE_NAVIGATION_CONSTANT,
+  MISSILE_SEEKER_GATE_DOT,
+  MISSILE_SEEKER_GIMBAL_DOT,
   MISSILE_SPEED,
+  MISSILE_TTL_SECONDS,
   OUT_OF_BOUNDS_GRACE_MS,
   PLAYER_HEALTH,
   PLAYER_HIT_RADIUS,
@@ -41,7 +57,7 @@ import {
   startRound,
   stepRoom
 } from "../../src/shared/simulation.js";
-import { distance, dot, forwardVector, length, normalize, quaternionFromRotation, scale } from "../../src/shared/math.js";
+import { distance, dot, forwardVector, length, normalize, quaternionFromRotation, scale, subtract } from "../../src/shared/math.js";
 import { isTerrainImpact, terrainHeightAt } from "../../src/shared/terrain.js";
 import type { PlayerState, ProjectileState, Rotation } from "../../src/shared/types.js";
 
@@ -81,9 +97,36 @@ describe("shared simulation", () => {
   it("keeps weapon and aircraft speeds on the requested ratios", () => {
     expect(MAX_SPEED).toBe(SPEED_UNIT * 1.5);
     expect(AFTERBURNER_SPEED).toBe(SPEED_UNIT * 2);
-    expect(BULLET_SPEED).toBe(SPEED_UNIT * 3);
+    expect(BULLET_SPEED).toBe(SPEED_UNIT * 12);
     expect(BULLET_TTL_SECONDS).toBeCloseTo(0.85 * 3);
-    expect(MISSILE_SPEED).toBe(SPEED_UNIT * 4);
+    expect(MISSILE_SPEED).toBe(SPEED_UNIT * 8);
+    expect(MISSILE_NAVIGATION_CONSTANT).toBeGreaterThanOrEqual(3);
+    expect(MISSILE_NAVIGATION_CONSTANT).toBeLessThanOrEqual(5);
+    expect(MISSILE_TTL_SECONDS).toBeGreaterThan(8);
+    expect(MISSILE_LOCK_RANGE).toBeCloseTo(MISSILE_SPEED * MISSILE_TTL_SECONDS * 0.9);
+    expect(FLARE_DECOY_RANGE).toBeGreaterThan(400);
+    expect(FLARE_COOLDOWN_SECONDS).toBeLessThan(0.25);
+    expect(FLARE_PEAK_HEAT_SIGNATURE).toBeGreaterThan(JET_ENGINE_HEAT_SIGNATURE);
+    expect(FLARE_MIN_HEAT_SIGNATURE).toBeLessThan(JET_ENGINE_HEAT_SIGNATURE);
+    expect(FLARE_HEAT_DECAY_SECONDS).toBeLessThan(FLARE_TTL_SECONDS);
+    expect(JET_AFTERBURNER_HEAT_MULTIPLIER).toBeGreaterThan(1);
+    expect(MISSILE_SEEKER_GATE_DOT).toBeGreaterThan(0.5);
+  });
+
+  it("keeps the play area large enough for setup space and outer terrain", () => {
+    expect(ARENA_RADIUS).toBeGreaterThanOrEqual(3000);
+    expect(MAX_ALTITUDE).toBe(1800);
+    expect(ARENA_RADIUS).toBeGreaterThan(SPAWN_RING_MAX * 2);
+    expect(ARENA_RADIUS).toBeGreaterThan(GUN_CONVERGENCE_DISTANCE * 4);
+
+    const outermostTerrain = Math.max(
+      ...TERRAIN_ISLANDS.map((island) => {
+        const islandRadius = Math.max(island.beachRadius * island.beachScaleX, island.beachRadius * island.beachScaleZ);
+        return Math.hypot(island.x, island.z) + islandRadius;
+      })
+    );
+
+    expect(outermostTerrain).toBeLessThan(ARENA_RADIUS);
   });
 
   it("spawns aircraft on a wider staggered ring facing roughly inward", () => {
@@ -124,6 +167,7 @@ describe("shared simulation", () => {
       pitch: 4,
       yaw: -4,
       roll: 9,
+      aimDirection: { x: 0, y: 0, z: 8 },
       afterburner: true
     });
 
@@ -132,6 +176,7 @@ describe("shared simulation", () => {
     expect(player.input.pitch).toBe(1);
     expect(player.input.yaw).toBe(-1);
     expect(player.input.roll).toBe(1);
+    expect(player.input.aimDirection).toEqual({ x: 0, y: 0, z: 1 });
     expect(player.position.y).toBeGreaterThan(MAX_ALTITUDE);
     expect(player.status).toBe("alive");
     expect(player.outOfBoundsRemainingMs).toBeGreaterThan(0);
@@ -525,7 +570,7 @@ describe("shared simulation", () => {
       velocity: { x: 0, y: -MISSILE_SPEED, z: 0 },
       ttl: 1,
       damage: MISSILE_DAMAGE,
-      createdAt: 1000
+      createdAt: 0
     };
     room.projectiles[missile.id] = missile;
 
@@ -544,31 +589,155 @@ describe("shared simulation", () => {
     expect(victim.health).toBeLessThan(PLAYER_HEALTH);
   });
 
-  it("proximity-fuses missiles near players and removes the missile", () => {
+  it("kills planes on direct missile impact", () => {
     const room = twoPlayerRoom();
     const owner = room.players.p1;
     const victim = room.players.p2;
     owner.position = { x: -400, y: 180, z: 0 };
     victim.position = { x: 0, y: 180, z: 0 };
-    victim.health = MISSILE_DAMAGE;
+    victim.health = PLAYER_HEALTH;
+
+    const missile: ProjectileState = {
+      id: "direct-hit-missile",
+      type: "missile",
+      ownerId: owner.id,
+      position: { x: 0, y: 180, z: -MISSILE_SPEED / 60 },
+      velocity: { x: 0, y: 0, z: MISSILE_SPEED },
+      ttl: 1,
+      damage: MISSILE_DAMAGE,
+      createdAt: 0
+    };
+    room.projectiles[missile.id] = missile;
+
+    const events = stepRoom(room, 1 / 30, 1050);
+
+    expect(room.projectiles[missile.id]).toBeUndefined();
+    expect(events).toContainEqual({
+      type: "hit",
+      roomId: room.id,
+      attackerId: owner.id,
+      victimId: victim.id,
+      damage: PLAYER_HEALTH,
+      weapon: "missile"
+    });
+    expect(events.some((event) => event.type === "kill" && event.victimId === victim.id)).toBe(true);
+    expect(victim.status).toBe("dead");
+  });
+
+  it("does not proximity-fuse early while a missile is still closing for a direct impact", () => {
+    const room = twoPlayerRoom();
+    const owner = room.players.p1;
+    const victim = room.players.p2;
+    owner.position = { x: -400, y: 180, z: 0 };
+    victim.position = { x: 0, y: 180, z: 0 };
+    victim.health = PLAYER_HEALTH;
+
+    const missile: ProjectileState = {
+      id: "closing-missile",
+      type: "missile",
+      ownerId: owner.id,
+      position: { x: 0, y: 180, z: PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS + 12 },
+      velocity: { x: 0, y: 0, z: -MISSILE_SPEED },
+      ttl: 1,
+      damage: MISSILE_DAMAGE,
+      createdAt: 0
+    };
+    room.projectiles[missile.id] = missile;
+
+    const events = stepRoom(room, 0.01, 1050);
+
+    expect(room.projectiles[missile.id]).toBeDefined();
+    expect(events.some((event) => event.type === "impact" && event.projectileType === "missile")).toBe(false);
+    expect(victim.health).toBe(PLAYER_HEALTH);
+  });
+
+  it("proximity-fuses missiles near players after a near miss and removes the missile", () => {
+    const room = twoPlayerRoom();
+    const owner = room.players.p1;
+    const victim = room.players.p2;
+    owner.position = { x: -400, y: 180, z: 0 };
+    victim.position = { x: 0, y: 180, z: 0 };
+    victim.health = PLAYER_HEALTH;
 
     const missile: ProjectileState = {
       id: "proximity-missile",
       type: "missile",
       ownerId: owner.id,
-      position: { x: 0, y: 180, z: 48 },
-      velocity: { x: 0, y: 0, z: -MISSILE_SPEED },
+      position: { x: -MISSILE_SPEED / 60, y: 180, z: PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS + 8 },
+      velocity: { x: MISSILE_SPEED, y: 0, z: 0 },
+      ttl: 1,
+      damage: MISSILE_DAMAGE,
+      createdAt: 0
+    };
+    room.projectiles[missile.id] = missile;
+
+    const events = stepRoom(room, 1 / 30, 1050);
+
+    expect(room.projectiles[missile.id]).toBeUndefined();
+    expect(events.some((event) => event.type === "impact" && event.projectileType === "missile" && event.reason === "player")).toBe(true);
+    expect(events.some((event) => event.type === "hit" && event.victimId === victim.id && event.weapon === "missile")).toBe(true);
+    expect(events.some((event) => event.type === "kill" && event.victimId === victim.id)).toBe(false);
+    expect(victim.health).toBeLessThan(PLAYER_HEALTH);
+    expect(victim.health).toBeGreaterThan(0);
+  });
+
+  it("does not fuse missiles against players before the warhead arms", () => {
+    const room = twoPlayerRoom();
+    const victim = room.players.p2;
+    victim.position = { x: 0, y: 180, z: 0 };
+    victim.health = MISSILE_DAMAGE;
+
+    const missile: ProjectileState = {
+      id: "unarmed-missile",
+      type: "missile",
+      ownerId: "p1",
+      position: { ...victim.position },
+      velocity: { x: 0, y: 0, z: 0 },
       ttl: 1,
       damage: MISSILE_DAMAGE,
       createdAt: 1000
     };
     room.projectiles[missile.id] = missile;
 
-    const events = stepRoom(room, 0, 1050);
+    const unarmedEvents = stepRoom(room, 0, 1050);
+
+    expect(room.projectiles[missile.id]).toBeDefined();
+    expect(victim.status).toBe("alive");
+    expect(victim.health).toBe(MISSILE_DAMAGE);
+    expect(unarmedEvents.some((event) => event.type === "hit" || event.type === "kill")).toBe(false);
+
+    const armedAt = 1000 + Math.ceil((MISSILE_ARMING_DISTANCE / MISSILE_SPEED) * 1000) + 1;
+    const armedEvents = stepRoom(room, 0, armedAt);
 
     expect(room.projectiles[missile.id]).toBeUndefined();
-    expect(events.some((event) => event.type === "impact" && event.projectileType === "missile" && event.reason === "player")).toBe(true);
-    expect(events.some((event) => event.type === "kill" && event.victimId === victim.id)).toBe(true);
+    expect(armedEvents.some((event) => event.type === "kill" && event.victimId === victim.id)).toBe(true);
+  });
+
+  it("leads crossing missile targets with proportional navigation", () => {
+    const room = twoPlayerRoom();
+    const target = room.players.p2;
+    target.position = { x: 0, y: 260, z: 1200 };
+    setRotation(target, { pitch: 0, yaw: Math.PI / 2, roll: 0 });
+    target.velocity = { x: MAX_SPEED, y: 0, z: 0 };
+
+    const missile: ProjectileState = {
+      id: "pn-crossing",
+      type: "missile",
+      ownerId: "p1",
+      targetId: target.id,
+      targetType: "player",
+      position: { x: 0, y: 260, z: 0 },
+      velocity: { x: 0, y: 0, z: MISSILE_SPEED },
+      ttl: 2,
+      damage: MISSILE_DAMAGE,
+      createdAt: 0
+    };
+    room.projectiles[missile.id] = missile;
+
+    stepRoom(room, 1 / 30, 1050);
+
+    expect(missile.velocity.x).toBeGreaterThan(0);
+    expect(missile.position.x).toBeGreaterThan(0);
   });
 
   it("lets roll persist without turning until pitch is applied", () => {
@@ -634,6 +803,7 @@ describe("shared simulation", () => {
     expect(dumbfire?.targetId).toBeUndefined();
     expect(dumbfire?.targetType).toBeUndefined();
     expect(attacker.missilesRemaining).toBe(MISSILE_AMMO_PER_ROUND - 1);
+    delete room.projectiles[dumbfire?.id ?? ""];
 
     attacker.missileCooldown = 0;
     holdLock(room);
@@ -647,6 +817,60 @@ describe("shared simulation", () => {
     expect(missile?.targetType).toBe("player");
     expect(attacker.missileCooldown).toBeGreaterThan(0);
     expect(attacker.missilesRemaining).toBe(MISSILE_AMMO_PER_ROUND - 2);
+  });
+
+  it("can acquire long-range missile locks in the larger arena", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    const target = room.players.p2;
+
+    attacker.position = { x: 0, y: 260, z: 0 };
+    setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
+    target.position = { x: 0, y: 260, z: MISSILE_LOCK_RANGE - 40 };
+    setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
+
+    holdLock(room);
+
+    expect(attacker.missileLockTargetId).toBe(target.id);
+    expect(attacker.missileLockAcquired).toBe(true);
+
+    target.position = {
+      x: attacker.position.x + MISSILE_LOCK_RANGE + 300,
+      y: attacker.position.y,
+      z: attacker.position.z
+    };
+    setPlayerInput(attacker, { seq: 40 });
+    stepRoom(room, 0.1, room.now + 100);
+
+    expect(attacker.missileLockTargetId).toBeUndefined();
+  });
+
+  it("can slave heat-seeker lock to mouse aim inside the seeker gimbal", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    const target = room.players.p2;
+
+    attacker.position = { x: 0, y: 260, z: 0 };
+    setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
+    target.position = { x: 700, y: 260, z: 3000 };
+    setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
+
+    const targetDirection = normalize(subtract(target.position, attacker.position));
+    expect(dot(targetDirection, forwardVector(attacker.rotation))).toBeLessThan(MISSILE_LOCK_DOT);
+    expect(dot(targetDirection, forwardVector(attacker.rotation))).toBeGreaterThan(MISSILE_SEEKER_GIMBAL_DOT);
+
+    for (let i = 0; i < Math.ceil(MISSILE_LOCK_SECONDS / 0.1) + 1; i += 1) {
+      setPlayerInput(attacker, { seq: i + 1, aimDirection: targetDirection });
+      stepRoom(room, 0.1, 1100 + i * 100);
+    }
+
+    expect(attacker.missileLockTargetId).toBe(target.id);
+    expect(attacker.missileLockAcquired).toBe(true);
+
+    setPlayerInput(attacker, { seq: 80, aimDirection: { x: -1, y: 0, z: 0 } });
+    stepRoom(room, 0.1, room.now + 100);
+
+    expect(attacker.missileLockTargetId).toBeUndefined();
   });
 
   it("uses a narrow lock cone and a tight break cone", () => {
@@ -697,6 +921,8 @@ describe("shared simulation", () => {
     setPlayerInput(attacker, { seq: 40, fireMissile: true });
     stepRoom(room, 1 / 30, 3800);
     expect(Object.values(room.projectiles).filter((projectile) => projectile.type === "missile")).toHaveLength(1);
+    expect(attacker.missileLockTargetId).toBeUndefined();
+    expect(attacker.missileLockAcquired).toBe(false);
 
     target.flaresRemaining = 1;
     setPlayerInput(target, { seq: 1, fireFlare: true });
@@ -724,6 +950,31 @@ describe("shared simulation", () => {
     expect(room.players.p1.flaresRemaining).toBe(FLARE_AMMO_PER_ROUND);
   });
 
+  it("dispenses held flares from alternating underside launchers", () => {
+    const room = twoPlayerRoom();
+    const target = room.players.p2;
+
+    target.position = { x: 0, y: 220, z: 0 };
+    setRotation(target, { pitch: 0, yaw: 0, roll: 0 });
+    target.flaresRemaining = 3;
+
+    setPlayerInput(target, { seq: 1, fireFlare: true });
+    let now = 1200;
+    stepRoom(room, 1 / 30, now);
+    for (let i = 0; i < Math.ceil(FLARE_COOLDOWN_SECONDS / (1 / 30)) + 1; i += 1) {
+      now += 1000 / 30;
+      stepRoom(room, 1 / 30, now);
+    }
+
+    const flares = Object.values(room.projectiles).filter((projectile) => projectile.type === "flare");
+    expect(flares).toHaveLength(2);
+    expect(flares[0].position.x).toBeGreaterThan(0);
+    expect(flares[1].position.x).toBeLessThan(0);
+    expect(flares.every((flare) => flare.position.y < 220)).toBe(true);
+    expect(flares.every((flare) => flare.velocity.y < 0)).toBe(true);
+    expect(target.flaresRemaining).toBe(1);
+  });
+
   it("clears missile lock when target leaves the lock cone", () => {
     const room = twoPlayerRoom();
     const attacker = room.players.p1;
@@ -745,31 +996,78 @@ describe("shared simulation", () => {
     expect(attacker.missileLockAcquired).toBe(false);
   });
 
-  it("lets flares distract locked missiles", () => {
+  it("lets fresh hot flares distract locked missiles inside the seeker gate", () => {
     const room = twoPlayerRoom();
-    const attacker = room.players.p1;
     const target = room.players.p2;
-
-    attacker.position = { x: 0, y: 160, z: 0 };
-    setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    target.position = { x: 0, y: 160, z: 240 };
+    target.position = { x: 0, y: 220, z: 320 };
     setRotation(target, { pitch: 0, yaw: 0, roll: 0 });
 
-    holdLock(room);
-    setPlayerInput(attacker, { seq: 20, fireMissile: true });
-    stepRoom(room, 1 / 30, 2400);
-    const missile = Object.values(room.projectiles).find((projectile) => projectile.type === "missile");
-    expect(missile?.targetType).toBe("player");
+    const missile: ProjectileState = {
+      id: "close-flare-decoy",
+      type: "missile",
+      ownerId: "p1",
+      targetId: "p2",
+      targetType: "player",
+      position: { x: 0, y: 220, z: 0 },
+      velocity: { x: 0, y: 0, z: MISSILE_SPEED },
+      ttl: 1,
+      damage: MISSILE_DAMAGE,
+      createdAt: 1000
+    };
+    const flare: ProjectileState = {
+      id: "close-flare",
+      type: "flare",
+      ownerId: "p2",
+      position: { x: 0, y: 220, z: 60 },
+      velocity: { x: 0, y: 0, z: 0 },
+      ttl: 1,
+      damage: 0,
+      createdAt: 1000
+    };
+    room.projectiles[missile.id] = missile;
+    room.projectiles[flare.id] = flare;
 
-    setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
-    setPlayerInput(target, { seq: 1, fireFlare: true });
-    const events = stepRoom(room, 1 / 30, 2433);
+    stepRoom(room, 0, 1050);
 
-    const flare = Object.values(room.projectiles).find((projectile) => projectile.type === "flare");
-    expect(flare).toBeDefined();
-    expect(missile?.targetId).toBe(flare?.id);
-    expect(missile?.targetType).toBe("flare");
-    expect(events).toContainEqual({ type: "launch", roomId: room.id, playerId: target.id, weapon: "flare" });
+    expect(missile.targetId).toBe(flare.id);
+    expect(missile.targetType).toBe("flare");
+  });
+
+  it("keeps cooled flares ignored when the engine return is stronger", () => {
+    const room = twoPlayerRoom();
+    const target = room.players.p2;
+    target.position = { x: 0, y: 220, z: 260 };
+    setRotation(target, { pitch: 0, yaw: 0, roll: 0 });
+
+    const missile: ProjectileState = {
+      id: "long-flare-decoy",
+      type: "missile",
+      ownerId: "p1",
+      targetId: "p2",
+      targetType: "player",
+      position: { x: 0, y: 220, z: 0 },
+      velocity: { x: 0, y: 0, z: MISSILE_SPEED },
+      ttl: 1,
+      damage: MISSILE_DAMAGE,
+      createdAt: 1000
+    };
+    const flare: ProjectileState = {
+      id: "wide-flare",
+      type: "flare",
+      ownerId: "p2",
+      position: { x: 0, y: 220, z: 80 },
+      velocity: { x: 0, y: 0, z: 0 },
+      ttl: 1,
+      damage: 0,
+      createdAt: -5000
+    };
+    room.projectiles[missile.id] = missile;
+    room.projectiles[flare.id] = flare;
+
+    stepRoom(room, 0, 1050);
+
+    expect(missile.targetId).toBe(target.id);
+    expect(missile.targetType).toBe("player");
   });
 
   it("ends the round and selects the score leader", () => {

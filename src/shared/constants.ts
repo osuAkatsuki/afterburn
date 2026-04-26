@@ -4,8 +4,8 @@ export const MAX_PLAYERS = 6;
 export const MIN_PLAYERS_TO_START = 2;
 export const RESPAWN_MS = 3000;
 
-export const ARENA_RADIUS = 1800;
-export const MAX_ALTITUDE = 900;
+export const ARENA_RADIUS = 3200;
+export const MAX_ALTITUDE = 1800;
 export const OUT_OF_BOUNDS_GRACE_MS = 10000;
 export const DISCONNECT_GRACE_MS = 15000;
 export const OCEAN_LEVEL = 0;
@@ -71,6 +71,41 @@ export const TERRAIN_ISLANDS: TerrainIsland[] = [
       { x: 36, z: 22, radius: 58, height: 48 },
       { x: 0, z: 54, radius: 48, height: 38 }
     ]
+  },
+  {
+    x: Math.sin(0.68) * 2180,
+    z: Math.cos(0.68) * 2180,
+    beachRadius: 205,
+    beachScaleX: 1.48,
+    beachScaleZ: 0.72,
+    peaks: [
+      { x: -58, z: -18, radius: 94, height: 82 },
+      { x: 48, z: 26, radius: 78, height: 66 },
+      { x: 118, z: -34, radius: 62, height: 42 }
+    ]
+  },
+  {
+    x: Math.sin(-2.42) * 2460,
+    z: Math.cos(-2.42) * 2460,
+    beachRadius: 185,
+    beachScaleX: 1.08,
+    beachScaleZ: 1.18,
+    peaks: [
+      { x: -38, z: 54, radius: 92, height: 74 },
+      { x: 62, z: -18, radius: 72, height: 58 },
+      { x: -92, z: -44, radius: 58, height: 38 }
+    ]
+  },
+  {
+    x: Math.sin(2.82) * 2740,
+    z: Math.cos(2.82) * 2740,
+    beachRadius: 150,
+    beachScaleX: 1.62,
+    beachScaleZ: 0.62,
+    peaks: [
+      { x: -48, z: -8, radius: 74, height: 56 },
+      { x: 58, z: 18, radius: 62, height: 44 }
+    ]
   }
 ];
 
@@ -100,27 +135,36 @@ export const GUN_HEAT_PER_SHOT = 0.12;
 export const GUN_HEAT_DECAY_PER_SECOND = 0.38;
 export const GUN_HEAT_MAX = 1;
 export const GUN_CONVERGENCE_DISTANCE = 650;
-export const BULLET_SPEED = SPEED_UNIT * 3;
+export const BULLET_SPEED = SPEED_UNIT * 12;
 export const BULLET_TTL_SECONDS = 2.55;
 export const BULLET_HIT_RADIUS = 3;
 
 export const MISSILE_DAMAGE = 70;
 export const MISSILE_AMMO_PER_ROUND = 3;
 export const MISSILE_COOLDOWN_SECONDS = 4.5;
-export const MISSILE_SPEED = SPEED_UNIT * 4;
+export const MISSILE_SPEED = SPEED_UNIT * 8;
 export const MISSILE_TURN_RATE = 2.4;
-export const MISSILE_TTL_SECONDS = 6.5;
+export const MISSILE_NAVIGATION_CONSTANT = 4;
+export const MISSILE_TTL_SECONDS = 8.5;
+export const MISSILE_ARMING_DISTANCE = 140;
 export const MISSILE_LOCK_SECONDS = 1.85;
-export const MISSILE_LOCK_RANGE = 650;
+export const MISSILE_LOCK_RANGE = MISSILE_SPEED * MISSILE_TTL_SECONDS * 0.9;
 export const MISSILE_LOCK_DOT = 0.992;
 export const MISSILE_LOCK_BREAK_DOT = 0.985;
+export const MISSILE_SEEKER_GIMBAL_DOT = 0.82;
+export const MISSILE_SEEKER_GATE_DOT = 0.62;
 export const MISSILE_HIT_RADIUS = 34;
 export const MISSILE_PROXIMITY_RADIUS = 58;
 export const MISSILE_BLAST_RADIUS = 120;
 export const MISSILE_MIN_BLAST_DAMAGE = 22;
 
-export const FLARE_COOLDOWN_SECONDS = 3.2;
+export const JET_ENGINE_HEAT_SIGNATURE = 1;
+export const JET_AFTERBURNER_HEAT_MULTIPLIER = 1.85;
+export const FLARE_PEAK_HEAT_SIGNATURE = 3.2;
+export const FLARE_HEAT_DECAY_SECONDS = 1.15;
+export const FLARE_MIN_HEAT_SIGNATURE = 0.04;
+export const FLARE_COOLDOWN_SECONDS = 0.16;
 export const FLARE_AMMO_PER_ROUND = 15;
 export const FLARE_TTL_SECONDS = 4.2;
 export const FLARE_SPEED = 58;
-export const FLARE_DECOY_RANGE = 260;
+export const FLARE_DECOY_RANGE = 420;

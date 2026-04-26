@@ -32,6 +32,7 @@ export type InputFrame = {
   fireMissile: boolean;
   fireFlare: boolean;
   afterburner: boolean;
+  aimDirection?: Vec3;
   timestamp: number;
 };
 

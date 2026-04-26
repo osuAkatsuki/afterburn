@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { RoomState } from "../../shared/types.js";
+import type { RoomState, Vec3 } from "../../shared/types.js";
 import { ChaseCamera } from "./camera/ChaseCamera.js";
 import type { CameraLookInput } from "../hooks/useFlightInput.js";
 import {
@@ -57,6 +57,7 @@ export class DogfightScene {
     this.projectileRenderer
   );
   private readonly debugSize = new THREE.Vector2();
+  private readonly aimRay = new THREE.Vector3();
   private state: RoomState | undefined;
   private localPlayerId = "";
   private cameraLook: CameraLookInput = { active: false, yaw: 0, pitch: 0 };
@@ -115,6 +116,25 @@ export class DogfightScene {
     }
 
     return computeMouseAimInstructorAxes(aim, local.rotation.roll);
+  }
+
+  computeMouseAimDirection(aim: MouseAimPoint): Vec3 | undefined {
+    const local = this.state?.players[this.localPlayerId];
+    if (!local || local.status !== "alive") {
+      return undefined;
+    }
+
+    const screenX = aim.screenX ?? window.innerWidth / 2;
+    const screenY = aim.screenY ?? window.innerHeight / 2;
+    const ndcX = (screenX / window.innerWidth) * 2 - 1;
+    const ndcY = -(screenY / window.innerHeight) * 2 + 1;
+    const direction = this.aimRay
+      .set(ndcX, ndcY, 0.5)
+      .unproject(this.camera)
+      .sub(this.camera.position)
+      .normalize();
+
+    return { x: direction.x, y: direction.y, z: direction.z };
   }
 
   render(now: number): void {

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { clamp } from "../../shared/math.js";
-import type { InputFrame, RoomState } from "../../shared/types.js";
+import type { InputFrame, RoomState, Vec3 } from "../../shared/types.js";
 import { computeMouseAimInstructorAxes, type FlightAxes, type MouseAimPoint } from "../input/mouseAimInstructor.js";
 
 type UseFlightInputOptions = {
@@ -10,6 +10,7 @@ type UseFlightInputOptions = {
   onLocalInput?: (input: InputFrame) => void;
   onCameraLook?: (look: CameraLookInput) => void;
   getMouseAimAxes?: (aim: MouseAimPoint) => FlightAxes | undefined;
+  getMouseAimDirection?: (aim: MouseAimPoint) => Vec3 | undefined;
   setScoreboardVisible: (visible: boolean) => void;
 };
 
@@ -32,6 +33,7 @@ export function useFlightInput({
   onLocalInput,
   onCameraLook,
   getMouseAimAxes,
+  getMouseAimDirection,
   setScoreboardVisible
 }: UseFlightInputOptions): void {
   const keys = useRef(new Set<string>());
@@ -46,6 +48,7 @@ export function useFlightInput({
   const onLocalInputRef = useRef(onLocalInput);
   const onCameraLookRef = useRef(onCameraLook);
   const getMouseAimAxesRef = useRef(getMouseAimAxes);
+  const getMouseAimDirectionRef = useRef(getMouseAimDirection);
 
   useEffect(() => {
     roomRef.current = room;
@@ -54,7 +57,8 @@ export function useFlightInput({
     onLocalInputRef.current = onLocalInput;
     onCameraLookRef.current = onCameraLook;
     getMouseAimAxesRef.current = getMouseAimAxes;
-  }, [getMouseAimAxes, onCameraLook, onLocalInput, playerId, room, sendInput]);
+    getMouseAimDirectionRef.current = getMouseAimDirection;
+  }, [getMouseAimAxes, getMouseAimDirection, onCameraLook, onLocalInput, playerId, room, sendInput]);
 
   useEffect(() => {
     updateMouseAimMarker(mouseAim.current);
@@ -181,7 +185,7 @@ export function useFlightInput({
         const keyboardPitch = axis("KeyS", "KeyW", keys.current) || axis("ArrowUp", "ArrowDown", keys.current) || axis("KeyI", "KeyK", keys.current);
         const keyboardYaw = axis("ArrowLeft", "ArrowRight", keys.current) || axis("KeyJ", "KeyL", keys.current);
         const keyboardRoll = axis("KeyA", "KeyD", keys.current);
-        const input = {
+        const input: InputFrame = {
           seq: seq.current,
           thrust: 0,
           pitch: keyboardPitch || mouseAxes.pitch,
@@ -191,6 +195,7 @@ export function useFlightInput({
           fireMissile: keys.current.has("KeyE"),
           fireFlare: keys.current.has("KeyF"),
           afterburner: keys.current.has("ShiftLeft") || keys.current.has("ShiftRight"),
+          aimDirection: freeLook.current.active ? undefined : getMouseAimDirectionRef.current?.(mouseAim.current),
           timestamp: now
         };
         onLocalInputRef.current?.(input);

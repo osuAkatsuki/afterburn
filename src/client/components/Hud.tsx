@@ -11,6 +11,9 @@ export function Hud({ room, localPlayer }: HudProps) {
     ? Object.values(room?.projectiles ?? {}).some((projectile) => projectile.type === "missile" && projectile.targetType === "player" && projectile.targetId === localPlayer.id)
     : false;
   const afterburner = localPlayer?.input.afterburner === true;
+  const hasMissiles = (localPlayer?.missilesRemaining ?? 0) > 0;
+  const lockProgress = hasMissiles ? localPlayer?.missileLockProgress ?? 0 : 0;
+  const lockLabel = hasMissiles && localPlayer?.missileLockAcquired ? "Locked" : lockProgress > 0 ? "Locking" : "Lock";
   const outOfBoundsSeconds = Math.ceil((localPlayer?.outOfBoundsRemainingMs ?? 0) / 1000);
   const statusText =
     outOfBoundsSeconds > 0
@@ -46,10 +49,12 @@ export function Hud({ room, localPlayer }: HudProps) {
           <span>MSL {localPlayer?.missilesRemaining ?? 0}</span>
           <meter min="0" max="1" value={missileReadyRatio(localPlayer)} />
         </label>
-        <label>
-          <span>Lock</span>
-          <meter min="0" max="1" value={localPlayer?.missileLockProgress ?? 0} />
-        </label>
+        {hasMissiles ? (
+          <label>
+            <span>{lockLabel}</span>
+            <meter min="0" max="1" value={lockProgress} />
+          </label>
+        ) : null}
         <label>
           <span>FLR {localPlayer?.flaresRemaining ?? 0}</span>
           <meter min="0" max="1" value={flareReadyRatio(localPlayer)} />

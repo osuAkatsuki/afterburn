@@ -85,14 +85,14 @@ export class ProjectileRenderer {
     flare.userData.projectileType = "flare";
 
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(4.2, 14, 10),
-      new THREE.MeshBasicMaterial({ color: "#fffbeb", transparent: true, opacity: 0.95 })
+      new THREE.SphereGeometry(1.35, 10, 8),
+      new THREE.MeshBasicMaterial({ color: "#fffbeb", transparent: true, opacity: 0.88 })
     );
     flare.add(core);
 
     const corona = new THREE.Mesh(
-      new THREE.SphereGeometry(9, 14, 10),
-      new THREE.MeshBasicMaterial({ color: "#fb923c", transparent: true, opacity: 0.35, depthWrite: false })
+      new THREE.SphereGeometry(3.25, 10, 8),
+      new THREE.MeshBasicMaterial({ color: "#fb923c", transparent: true, opacity: 0.26, depthWrite: false })
     );
     flare.add(corona);
     return flare;

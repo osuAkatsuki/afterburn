@@ -26,6 +26,22 @@ const SAFE_ALTITUDE = 115;
 const HIGH_ALTITUDE = MAX_ALTITUDE * 0.86;
 const BOUNDARY_RECOVERY_RADIUS = ARENA_RADIUS * 0.82;
 const CENTER_RECOVERY_RADIUS = ARENA_RADIUS * 0.92;
+const BOUNDARY_RECOVERY_TANGENT = 900;
+const BOT_KEEPOUT_RANGE = 380;
+const BOT_MERGE_RANGE = 680;
+const BOT_BREAKAWAY_FORWARD = 560;
+const BOT_BREAKAWAY_SIDE = 520;
+const BOT_BREAKAWAY_CLIMB = 150;
+const BOT_OFFSET_PURSUIT_SIDE = 260;
+const BOT_FLARE_REACTION_MIN_MS = 420;
+const BOT_FLARE_REACTION_SPREAD_MS = 680;
+const BOT_FLARE_DEPLOY_MIN_RANGE = 220;
+const BOT_FLARE_DEPLOY_SPREAD_RANGE = 210;
+
+type BotPlan = {
+  point: Vec3;
+  mode: "pursuit" | "offset" | "breakaway";
+};
 
 export function createBotInput(room: RoomState, bot: PlayerState, now: number): InputFrame {
   const input = neutralInput(now);
@@ -37,18 +53,20 @@ export function createBotInput(room: RoomState, bot: PlayerState, now: number): 
 
   const target = findBotTarget(room, bot);
   const recoveryPoint = getRecoveryPoint(bot);
-  const aimPoint = recoveryPoint ?? getAimPoint(target);
+  const plan = target ? getEngagementPlan(bot, target) : undefined;
+  const aimPoint = recoveryPoint ?? plan?.point;
   const steering = aimPoint ? steerToward(bot, aimPoint) : patrol(bot);
   const targetRange = target ? distance(bot.position, target.position) : Number.POSITIVE_INFINITY;
   const targetAhead = target ? steering.ahead : -1;
+  const breakingAway = plan?.mode === "breakaway" && !recoveryPoint;
 
   input.pitch = steering.pitch;
   input.yaw = steering.yaw;
   input.roll = steering.roll;
-  input.afterburner = Boolean(recoveryPoint || targetRange > 520);
-  input.fireGun = Boolean(target && targetRange < GUN_CONVERGENCE_DISTANCE * 0.72 && targetAhead > 0.985);
-  input.fireMissile = Boolean(target && bot.missileLockAcquired && targetRange < MISSILE_LOCK_RANGE && targetAhead > 0.99);
-  input.fireFlare = shouldDeployFlare(room, bot);
+  input.afterburner = Boolean(recoveryPoint || breakingAway || targetRange > 900);
+  input.fireGun = Boolean(!breakingAway && target && targetRange < GUN_CONVERGENCE_DISTANCE * 0.72 && targetAhead > 0.985);
+  input.fireMissile = Boolean(!breakingAway && target && bot.missileLockAcquired && targetRange < MISSILE_LOCK_RANGE && targetAhead > 0.99);
+  input.fireFlare = shouldDeployFlare(room, bot, now);
 
   return input;
 }
@@ -81,10 +99,11 @@ function getRecoveryPoint(bot: PlayerState): Vec3 | undefined {
 
   if (horizontalRange > BOUNDARY_RECOVERY_RADIUS) {
     const centerPull = horizontalRange > CENTER_RECOVERY_RADIUS ? 0 : 0.28;
+    const tangent = horizontalRange > 0.001 ? { x: -bot.position.z / horizontalRange, y: 0, z: bot.position.x / horizontalRange } : { x: 1, y: 0, z: 0 };
     return {
-      x: -bot.position.x * centerPull,
+      x: -bot.position.x * centerPull + tangent.x * BOUNDARY_RECOVERY_TANGENT,
       y: Math.max(SAFE_ALTITUDE + 80, Math.min(bot.position.y, MAX_ALTITUDE * 0.62)),
-      z: -bot.position.z * centerPull
+      z: -bot.position.z * centerPull + tangent.z * BOUNDARY_RECOVERY_TANGENT
     };
   }
 
@@ -97,6 +116,58 @@ function getAimPoint(target: PlayerState | undefined): Vec3 | undefined {
   }
 
   return add(target.position, scale(target.velocity, TARGET_LEAD_SECONDS));
+}
+
+function getEngagementPlan(bot: PlayerState, target: PlayerState): BotPlan {
+  const range = distance(bot.position, target.position);
+  if (range < BOT_KEEPOUT_RANGE || isCollisionCourse(bot, target, range)) {
+    return { point: getBreakawayPoint(bot, target), mode: "breakaway" };
+  }
+
+  if (range < BOT_MERGE_RANGE) {
+    return { point: getOffsetPursuitPoint(bot, target), mode: "offset" };
+  }
+
+  return { point: getAimPoint(target) ?? target.position, mode: "pursuit" };
+}
+
+function isCollisionCourse(bot: PlayerState, target: PlayerState, range: number): boolean {
+  if (range > BOT_MERGE_RANGE) {
+    return false;
+  }
+
+  const forward = botForward(bot);
+  const toTarget = normalize(subtract(target.position, bot.position));
+  const targetSpeed = length(target.velocity);
+  const targetClosing = targetSpeed > 0.001 ? dot(normalize(target.velocity), scale(toTarget, -1)) : 0;
+  return dot(forward, toTarget) > 0.72 && targetClosing > 0.25;
+}
+
+function getBreakawayPoint(bot: PlayerState, target: PlayerState): Vec3 {
+  const orientation = bot.orientation ?? quaternionFromRotation(bot.rotation);
+  const forward = normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, orientation));
+  const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
+  const side = botBreakSide(bot, target);
+  return add(add(add(bot.position, scale(forward, BOT_BREAKAWAY_FORWARD)), scale(right, side * BOT_BREAKAWAY_SIDE)), {
+    x: 0,
+    y: BOT_BREAKAWAY_CLIMB,
+    z: 0
+  });
+}
+
+function getOffsetPursuitPoint(bot: PlayerState, target: PlayerState): Vec3 {
+  const orientation = bot.orientation ?? quaternionFromRotation(bot.rotation);
+  const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
+  const side = botBreakSide(bot, target);
+  return add(add(getAimPoint(target) ?? target.position, scale(right, side * BOT_OFFSET_PURSUIT_SIDE)), {
+    x: 0,
+    y: 60,
+    z: 0
+  });
+}
+
+function botForward(bot: PlayerState): Vec3 {
+  return normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, bot.orientation ?? quaternionFromRotation(bot.rotation)));
 }
 
 function patrol(bot: PlayerState): { pitch: number; yaw: number; roll: number; ahead: number } {
@@ -132,14 +203,23 @@ function steerToward(bot: PlayerState, point: Vec3): { pitch: number; yaw: numbe
   };
 }
 
-function shouldDeployFlare(room: RoomState, bot: PlayerState): boolean {
+function shouldDeployFlare(room: RoomState, bot: PlayerState, now: number): boolean {
   if (bot.flaresRemaining <= 0 || bot.flareCooldown > 0) {
     return false;
   }
 
   return Object.values(room.projectiles)
     .filter((projectile) => projectile.type === "missile" && projectile.targetId === bot.id)
-    .some((projectile) => projectileClosingRange(projectile, bot) < 260);
+    .some((projectile) => {
+      const age = now - projectile.createdAt;
+      const reactionDelay = BOT_FLARE_REACTION_MIN_MS + deterministicUnit(bot.id, projectile.id, "react") * BOT_FLARE_REACTION_SPREAD_MS;
+      if (age < reactionDelay) {
+        return false;
+      }
+
+      const deployRange = BOT_FLARE_DEPLOY_MIN_RANGE + deterministicUnit(bot.id, projectile.id, "range") * BOT_FLARE_DEPLOY_SPREAD_RANGE;
+      return projectileClosingRange(projectile, bot) < deployRange;
+    });
 }
 
 function projectileClosingRange(projectile: ProjectileState, bot: PlayerState): number {
@@ -152,4 +232,19 @@ function projectileClosingRange(projectile: ProjectileState, bot: PlayerState): 
   const closing = dot(missileForward, toBot);
 
   return closing > 0.55 ? distance(projectile.position, bot.position) : Number.POSITIVE_INFINITY;
+}
+
+function botBreakSide(bot: PlayerState, target: PlayerState): number {
+  return deterministicUnit(bot.id, target.id, "merge") >= 0.5 ? 1 : -1;
+}
+
+function deterministicUnit(...parts: string[]): number {
+  let hash = 2166136261;
+  const input = parts.join(":");
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return (hash >>> 0) / 0xffffffff;
 }

@@ -1,7 +1,7 @@
 import { applyQuaternion, horizontalLength, normalize, quaternionFromRotation } from "../../shared/math.js";
 import type { PlayerState, Vec3 } from "../../shared/types.js";
 
-export const RADAR_RANGE = 900;
+export const RADAR_RANGE = 1600;
 export const RADAR_RADIUS_PX = 42;
 
 export type RadarContact = {
@@ -39,7 +39,8 @@ export function radarContacts(players: PlayerState[], localPlayer: PlayerState):
       return [
         {
           player,
-          x: lateral * scale,
+          // The chase camera uses a 180deg yaw flip, so screen-left/right is mirrored from raw aircraft starboard.
+          x: -lateral * scale,
           y: -forward * scale,
           className: "enemy" as const
         }

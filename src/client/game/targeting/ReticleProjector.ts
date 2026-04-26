@@ -41,11 +41,16 @@ export class ReticleProjector {
     const x = Math.max(margin, Math.min(window.innerWidth - margin, ((aimPoint.x + 1) / 2) * window.innerWidth));
     const y = Math.max(margin, Math.min(window.innerHeight - margin, ((-aimPoint.y + 1) / 2) * window.innerHeight));
 
+    const hasMissiles = local.missilesRemaining > 0;
     this.reticle.dataset.visible = "true";
-    this.reticle.dataset.lock = local.missileLockAcquired ? "locked" : local.missileLockProgress > 0 ? "locking" : "idle";
+    this.reticle.dataset.lock = hasMissiles && local.missileLockAcquired ? "locked" : hasMissiles && local.missileLockProgress > 0 ? "locking" : "idle";
     this.reticle.style.setProperty("--reticle-x", `${x}px`);
     this.reticle.style.setProperty("--reticle-y", `${y}px`);
-    this.updateLockTargetIndicator(room, local);
+    if (hasMissiles) {
+      this.updateLockTargetIndicator(room, local);
+    } else {
+      this.reticle.dataset.targetVisible = "false";
+    }
     this.updateGunLeadIndicator(room, local, localJet, forward);
   }
 
@@ -127,7 +132,7 @@ export class ReticleProjector {
   }
 }
 
-function calculateInterceptTime(origin: THREE.Vector3, target: THREE.Vector3, targetVelocity: THREE.Vector3, projectileSpeed: number): number | undefined {
+export function calculateInterceptTime(origin: THREE.Vector3, target: THREE.Vector3, targetVelocity: THREE.Vector3, projectileSpeed: number): number | undefined {
   const offset = target.clone().sub(origin);
   const a = targetVelocity.lengthSq() - projectileSpeed * projectileSpeed;
   const b = 2 * offset.dot(targetVelocity);
