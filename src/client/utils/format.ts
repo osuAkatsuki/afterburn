@@ -21,10 +21,16 @@ export function roundTimeLabel(room?: RoomState): string {
 export function playerStatusLabel(room: RoomState, player: PlayerState): string {
   if (room.phase === "playing") {
     const status = player.status === "dead" ? "Respawning" : "Flying";
+    if (player.isBot) {
+      return `Bot / ${status}`;
+    }
     return room.hostId === player.id ? `Host / ${status}` : status;
   }
 
   const ready = player.ready ? "Ready" : "Not ready";
+  if (player.isBot) {
+    return `Bot / ${ready}`;
+  }
   return room.hostId === player.id ? `Host / ${ready}` : ready;
 }
 

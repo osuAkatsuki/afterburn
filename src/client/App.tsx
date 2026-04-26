@@ -26,6 +26,7 @@ export function App() {
   const worldPresenterRef = useRef(new ClientWorldPresenter());
 
   const {
+    addBot: emitAddBot,
     combatNotice,
     connectionStatus,
     createRoom: emitCreateRoom,
@@ -33,6 +34,7 @@ export function App() {
     networkStats,
     playerId,
     renamePlayer: emitRenamePlayer,
+    removeBot: emitRemoveBot,
     room,
     roundEndedNotice,
     sendInput,
@@ -142,6 +144,14 @@ export function App() {
     emitSetReady(ready);
   }, [emitSetReady]);
 
+  const addBot = useCallback(() => {
+    emitAddBot();
+  }, [emitAddBot]);
+
+  const removeBot = useCallback((botId: string) => {
+    emitRemoveBot(botId);
+  }, [emitRemoveBot]);
+
   const startRound = useCallback((force = false) => {
     setShowEndScreen(false);
     emitStartRound(force);
@@ -184,6 +194,8 @@ export function App() {
         onJoinRoom={joinRoom}
         onShareRoom={shareRoom}
         onReadyChange={setReady}
+        onAddBot={addBot}
+        onRemoveBot={removeBot}
         onStartRound={startRound}
       />
       <EndScreen room={room} visible={showEndScreen && room?.phase === "ended"} onBackToLobby={() => setShowEndScreen(false)} />

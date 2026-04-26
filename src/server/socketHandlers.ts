@@ -55,6 +55,35 @@ export function registerGameSocketHandlers(io: GameServer, manager: GameRoomMana
       emitSnapshot(io, manager, result.room);
     });
 
+    socket.on("bot:add", (payload = {}) => {
+      const count = readBotCount(payload);
+      let latestRoom: RoomState | undefined;
+
+      for (let i = 0; i < count; i += 1) {
+        const result = manager.addBot(socket.id);
+        if (!result.ok) {
+          emitError(socket, result.message);
+          break;
+        }
+
+        latestRoom = result.room;
+      }
+
+      if (latestRoom) {
+        emitSnapshot(io, manager, latestRoom);
+      }
+    });
+
+    socket.on("bot:remove", (payload = {}) => {
+      const result = manager.removeBot(socket.id, readPlayerId(payload));
+      if (!result.ok) {
+        emitError(socket, result.message);
+        return;
+      }
+
+      emitSnapshot(io, manager, result.room);
+    });
+
     socket.on("input:update", (input) => {
       manager.setInput(socket.id, input);
     });
@@ -142,6 +171,16 @@ function readRoomId(payload: unknown): string {
 function readClientId(payload: unknown): string | undefined {
   const value = readPayloadValue(payload, "clientId");
   return typeof value === "string" ? value : undefined;
+}
+
+function readPlayerId(payload: unknown): string {
+  const value = readPayloadValue(payload, "playerId");
+  return typeof value === "string" ? value : "";
+}
+
+function readBotCount(payload: unknown): number {
+  const value = readPayloadValue(payload, "count");
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(1, Math.min(6, Math.floor(value))) : 1;
 }
 
 function readPayloadValue(payload: unknown, key: string): unknown {

@@ -70,6 +70,7 @@ export const TERRAIN_ISLANDS: TerrainIsland[] = [
 
 export const PLAYER_HEALTH = 100;
 export const PLAYER_HIT_RADIUS = 22;
+export const AIRCRAFT_COLLISION_RADIUS = 16;
 export const SPEED_UNIT = 100;
 export const MIN_SPEED = SPEED_UNIT * 1.5;
 export const MAX_SPEED = SPEED_UNIT * 1.5;

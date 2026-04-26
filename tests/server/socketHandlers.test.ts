@@ -130,6 +130,32 @@ describe("socketHandlers", () => {
     expect(snapshot.room.players["host-client"].ready).toBe(false);
   });
 
+  it("lets the host add and remove bots", async () => {
+    const harness = await createHarness("BOT01");
+    const host = await harness.connectClient();
+    const hostJoined = waitForEvent(host, "room:joined");
+    const hostInitialSnapshot = waitForEvent(host, "state:snapshot");
+
+    host.emit("room:create", { name: "Host", clientId: "host-client" });
+
+    await hostJoined;
+    await hostInitialSnapshot;
+
+    const addSnapshot = waitForEvent(host, "state:snapshot");
+    host.emit("bot:add", {});
+
+    const withBot = await addSnapshot;
+    const bot = Object.values(withBot.room.players).find((player) => player.isBot);
+    expect(bot?.name).toBe("Bandit 1");
+    expect(bot?.ready).toBe(true);
+
+    const removeSnapshot = waitForEvent(host, "state:snapshot");
+    host.emit("bot:remove", { playerId: bot?.id });
+
+    const withoutBot = await removeSnapshot;
+    expect(Object.values(withoutBot.room.players).some((player) => player.isBot)).toBe(false);
+  });
+
   it("broadcasts a room snapshot when a player disconnects", async () => {
     const harness = await createHarness("ROOMC");
     const host = await harness.connectClient();

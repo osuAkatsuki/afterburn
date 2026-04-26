@@ -148,6 +148,50 @@ describe("GameRoomManager", () => {
     expect(joined.room.players[joined.playerId]).toBeDefined();
   });
 
+  it("lets the host add and remove ready bots", () => {
+    const manager = new GameRoomManager(ids("BOTS1"));
+    const created = manager.createRoom("host", "Host", 1000, "host-client");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const bot = manager.addBot("host", 1100);
+    expect(bot.ok).toBe(true);
+    if (!bot.ok) return;
+
+    expect(bot.room.players[bot.playerId].isBot).toBe(true);
+    expect(bot.room.players[bot.playerId].ready).toBe(true);
+    expect(bot.room.players[bot.playerId].name).toBe("Bandit 1");
+
+    const guest = manager.joinRoom("BOTS1", "guest", "Guest", 1200, "guest-client");
+    expect(guest.ok).toBe(true);
+    expect(manager.addBot("guest", 1300).ok).toBe(false);
+
+    const removed = manager.removeBot("host", bot.playerId, 1400);
+    expect(removed.ok).toBe(true);
+    if (!removed.ok) return;
+    expect(removed.room.players[bot.playerId]).toBeUndefined();
+  });
+
+  it("uses bots as ready players and generates bot input during rounds", () => {
+    const manager = new GameRoomManager(ids("BOTS2"));
+    const created = manager.createRoom("host", "Host", 1000, "host-client");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const bot = manager.addBot("host", 1050);
+    expect(bot.ok).toBe(true);
+    if (!bot.ok) return;
+    manager.setReady("host", true, 1100);
+
+    const started = manager.startRoom("host", 1150);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(started.room.players[bot.playerId].status).toBe("alive");
+
+    manager.tickRooms(1183);
+    expect(manager.getRoom("BOTS2")?.players[bot.playerId].lastInputSeq).toBeGreaterThan(0);
+  });
+
   it("transfers host on disconnect and removes empty rooms", () => {
     const manager = new GameRoomManager(ids("HOSTS"));
     manager.createRoom("host", "Host");
@@ -159,6 +203,18 @@ describe("GameRoomManager", () => {
 
     manager.removePlayer("guest");
     expect(manager.getRoom("HOSTS")).toBeUndefined();
+  });
+
+  it("removes bot-only rooms after the last human leaves", () => {
+    const manager = new GameRoomManager(ids("BOTS3"));
+    const created = manager.createRoom("host", "Host", 1000, "host-client");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(manager.addBot("host", 1100).ok).toBe(true);
+
+    manager.removePlayer("host-client", 1200);
+
+    expect(manager.getRoom("BOTS3")).toBeUndefined();
   });
 
   it("keeps disconnected players for a short reconnect grace window", () => {
@@ -241,7 +297,7 @@ describe("GameRoomManager", () => {
     expect(normalizeLatencyMs(Number.NaN)).toBe(0);
   });
 
-  it("acks inputs only after processing them in server ticks", () => {
+  it("acks the latest queued input after processing it in a server tick", () => {
     const manager = new GameRoomManager(ids("QUEUE"));
     manager.createRoom("host", "Host", 1000);
     manager.setReady("host", true, 1050);
@@ -252,12 +308,27 @@ describe("GameRoomManager", () => {
     expect(manager.getRoom("QUEUE")?.players.host.lastInputSeq).toBe(0);
 
     manager.tickRooms(1133);
-    expect(manager.getRoom("QUEUE")?.players.host.lastInputSeq).toBe(1);
-    expect(manager.getRoom("QUEUE")?.players.host.input.roll).toBe(1);
+    expect(manager.getRoom("QUEUE")?.players.host.lastInputSeq).toBe(2);
+    expect(manager.getRoom("QUEUE")?.players.host.input.roll).toBe(-1);
 
     manager.setInput("host", { seq: 1, roll: 0 });
     manager.tickRooms(1166);
     expect(manager.getRoom("QUEUE")?.players.host.lastInputSeq).toBe(2);
     expect(manager.getRoom("QUEUE")?.players.host.input.roll).toBe(-1);
+  });
+
+  it("preserves queued one-shot fire inputs when collapsing input backlog", () => {
+    const manager = new GameRoomManager(ids("FIREQ"));
+    manager.createRoom("host", "Host", 1000);
+    manager.setReady("host", true, 1050);
+    manager.startRoom("host", 1100);
+
+    manager.setInput("host", { seq: 1, fireGun: true });
+    manager.setInput("host", { seq: 2, fireGun: false });
+    const results = manager.tickRooms(1133);
+
+    expect(manager.getRoom("FIREQ")?.players.host.lastInputSeq).toBe(2);
+    expect(Object.values(manager.getRoom("FIREQ")?.projectiles ?? {}).filter((projectile) => projectile.type === "bullet")).toHaveLength(1);
+    expect(results[0]?.events).toContainEqual({ type: "launch", roomId: "FIREQ", playerId: "host", weapon: "bullet" });
   });
 });

@@ -39,6 +39,7 @@ export type PlayerState = {
   id: string;
   name: string;
   color: string;
+  isBot: boolean;
   ready: boolean;
   status: PlayerStatus;
   position: Vec3;
@@ -177,6 +178,14 @@ export type RoundStartPayload = {
   force?: boolean;
 };
 
+export type BotAddPayload = {
+  count?: number;
+};
+
+export type BotRemovePayload = {
+  playerId?: string;
+};
+
 export type NetPingPayload = {
   clientTime: number;
 };
@@ -196,6 +205,8 @@ export type ClientToServerEvents = {
   "round:start": (payload?: RoundStartPayload) => void;
   "player:rename": (payload?: PlayerRenamePayload) => void;
   "player:ready": (payload?: PlayerReadyPayload) => void;
+  "bot:add": (payload?: BotAddPayload) => void;
+  "bot:remove": (payload?: BotRemovePayload) => void;
   "input:update": (input: Partial<InputFrame>) => void;
   "net:ping": (payload: NetPingPayload) => void;
   "net:latency": (payload: NetLatencyPayload) => void;

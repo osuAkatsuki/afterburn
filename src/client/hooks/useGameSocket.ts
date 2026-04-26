@@ -132,6 +132,14 @@ export function useGameSocket() {
     socketRef.current?.emit("player:ready", { ready });
   }, []);
 
+  const addBot = useCallback(() => {
+    socketRef.current?.emit("bot:add", { count: 1 });
+  }, []);
+
+  const removeBot = useCallback((playerId: string) => {
+    socketRef.current?.emit("bot:remove", { playerId });
+  }, []);
+
   const startRound = useCallback((force = false) => {
     socketRef.current?.emit("round:start", { force });
   }, []);
@@ -145,6 +153,7 @@ export function useGameSocket() {
   }, []);
 
   return {
+    addBot,
     combatNotice,
     connectionStatus,
     createRoom,
@@ -152,6 +161,7 @@ export function useGameSocket() {
     networkStats,
     playerId,
     renamePlayer,
+    removeBot,
     room,
     roundEndedNotice,
     sendInput,

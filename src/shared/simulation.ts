@@ -1,5 +1,6 @@
 import {
   AFTERBURNER_SPEED,
+  AIRCRAFT_COLLISION_RADIUS,
   AOA_LIFT_ACCELERATION,
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
@@ -122,6 +123,7 @@ export function createPlayer(id: string, name: string, index = 0, now = Date.now
     id,
     name: cleanName(name),
     color: palette[index % palette.length],
+    isBot: false,
     ready: false,
     status: "lobby",
     position: spawn.position,
@@ -233,7 +235,7 @@ export function stepRoom(room: RoomState, dtSeconds: number, now = room.now + dt
     room.phase = "ended";
     room.winnerId = getWinnerId(room);
     Object.values(room.players).forEach((player) => {
-      player.ready = false;
+      player.ready = player.isBot;
     });
   }
 
@@ -413,7 +415,7 @@ function resolvePlayerCollisions(room: RoomState, now: number, events: CombatEve
         continue;
       }
 
-      if (distance(player.position, other.position) <= PLAYER_HIT_RADIUS * 2) {
+      if (distance(player.position, other.position) <= AIRCRAFT_COLLISION_RADIUS * 2) {
         crashPlayer(room, player, "collision", now, events);
         crashPlayer(room, other, "collision", now, events);
       }

@@ -12,6 +12,7 @@ import {
   stepRoom
 } from "../shared/simulation.js";
 import type { CombatEvent, InputFrame, RoomState } from "../shared/types.js";
+import { createBotInput } from "./botPilot.js";
 
 export type JoinResult =
   | { ok: true; room: RoomState; playerId: string }
@@ -64,7 +65,7 @@ export class GameRoomManager {
 
     const existingPlayer = room.players[playerId];
     if (existingPlayer) {
-      if (!this.isActivePlayerOnAnotherSocket(playerId, socketId)) {
+      if (!existingPlayer.isBot && !this.isActivePlayerOnAnotherSocket(playerId, socketId)) {
         existingPlayer.name = uniquePlayerName(room, name, playerId);
         this.attachSocket(socketId, playerId, normalized);
         room.now = now;
@@ -94,6 +95,65 @@ export class GameRoomManager {
     return { ok: true, room, playerId };
   }
 
+  addBot(socketId: string, now = Date.now()): JoinResult {
+    const hostId = this.resolvePlayerId(socketId);
+    const room = this.getRoomForPlayer(hostId);
+    if (!room) {
+      return { ok: false, message: "Join or create a room first." };
+    }
+
+    if (room.hostId !== hostId) {
+      return { ok: false, message: "Only the host can add bots." };
+    }
+
+    if (room.phase === "playing") {
+      return { ok: false, message: "Add bots between rounds." };
+    }
+
+    if (Object.keys(room.players).length >= MAX_PLAYERS) {
+      return { ok: false, message: "That room is full." };
+    }
+
+    const botId = this.uniqueBotId(room);
+    const player = createPlayer(botId, uniquePlayerName(room, nextBotName(room), botId), Object.keys(room.players).length, now);
+    player.isBot = true;
+    player.ready = true;
+    player.latencyMs = 0;
+    addPlayerToRoom(room, player);
+    this.playerRooms.set(botId, room.id);
+    room.now = now;
+
+    return { ok: true, room, playerId: botId };
+  }
+
+  removeBot(socketId: string, botId: string, now = Date.now()): JoinResult {
+    const hostId = this.resolvePlayerId(socketId);
+    const room = this.getRoomForPlayer(hostId);
+    const bot = room?.players[botId];
+    if (!room) {
+      return { ok: false, message: "Join or create a room first." };
+    }
+
+    if (room.hostId !== hostId) {
+      return { ok: false, message: "Only the host can remove bots." };
+    }
+
+    if (!bot || !bot.isBot) {
+      return { ok: false, message: "Bot not found." };
+    }
+
+    if (room.phase === "playing") {
+      return { ok: false, message: "Remove bots between rounds." };
+    }
+
+    delete room.players[botId];
+    this.playerRooms.delete(botId);
+    this.inputQueues.delete(botId);
+    room.now = now;
+
+    return { ok: true, room, playerId: botId };
+  }
+
   startRoom(socketId: string, now = Date.now(), force = false): JoinResult {
     const playerId = this.resolvePlayerId(socketId);
     const room = this.getRoomForPlayer(playerId);
@@ -114,7 +174,7 @@ export class GameRoomManager {
       return { ok: false, message: "Need at least one pilot to start." };
     }
 
-    const readyPlayers = players.filter((player) => player.ready);
+    const readyPlayers = players.filter((player) => player.ready || player.isBot);
     const hostReady = Boolean(room.players[playerId]?.ready);
     if (!hostReady) {
       return { ok: false, message: "Ready up before launching." };
@@ -229,14 +289,14 @@ export class GameRoomManager {
     room.now = now;
 
     if (room.hostId === playerId) {
-      const nextHost = Object.keys(room.players)[0];
+      const nextHost = Object.values(room.players).find((player) => !player.isBot)?.id;
       if (nextHost) {
         room.hostId = nextHost;
       }
     }
 
-    if (Object.keys(room.players).length === 0) {
-      this.rooms.delete(room.id);
+    if (!Object.values(room.players).some((player) => !player.isBot)) {
+      this.removeRoom(room);
       return [];
     }
 
@@ -256,6 +316,7 @@ export class GameRoomManager {
       const wasPlaying = room.phase === "playing";
       if (wasPlaying) {
         this.consumeQueuedInputs(room);
+        this.updateBotInputs(room, now);
       }
       const events = stepRoom(room, 1 / TICK_RATE, now);
       const ended = wasPlaying && room.phase === "ended";
@@ -285,6 +346,17 @@ export class GameRoomManager {
     let id = this.makeRoomId();
     while (this.rooms.has(id)) {
       id = this.makeRoomId();
+    }
+
+    return id;
+  }
+
+  private uniqueBotId(room: RoomState): string {
+    let index = 1;
+    let id = `${room.id}-bot-${index}`;
+    while (room.players[id] || this.playerRooms.has(id)) {
+      index += 1;
+      id = `${room.id}-bot-${index}`;
     }
 
     return id;
@@ -344,23 +416,41 @@ export class GameRoomManager {
         return;
       }
 
-      while (queue.length > 0 && queue[0].seq <= player.lastInputSeq) {
-        queue.shift();
-      }
-
-      const nextInput = queue.shift();
+      const nextInput = collapseQueuedInputs(queue, player.lastInputSeq);
       if (nextInput) {
         setPlayerInput(player, nextInput);
       }
 
-      if (queue.length === 0) {
-        this.inputQueues.delete(player.id);
-      }
+      this.inputQueues.delete(player.id);
     });
   }
 
   private clearRoomInputQueues(room: RoomState): void {
     Object.keys(room.players).forEach((playerId) => this.inputQueues.delete(playerId));
+  }
+
+  private updateBotInputs(room: RoomState, now: number): void {
+    Object.values(room.players).forEach((player) => {
+      if (!player.isBot) {
+        return;
+      }
+
+      setPlayerInput(player, createBotInput(room, player, now));
+    });
+  }
+
+  private removeRoom(room: RoomState): void {
+    Object.keys(room.players).forEach((playerId) => {
+      this.playerRooms.delete(playerId);
+      this.disconnectedAt.delete(playerId);
+      this.inputQueues.delete(playerId);
+      const socketId = this.playerSockets.get(playerId);
+      if (socketId) {
+        this.socketPlayers.delete(socketId);
+      }
+      this.playerSockets.delete(playerId);
+    });
+    this.rooms.delete(room.id);
   }
 
   private resolvePlayerId(socketOrPlayerId: string): string {
@@ -441,6 +531,34 @@ export function uniquePlayerName(room: RoomState, requestedName: string, playerI
   }
 
   return `${base.slice(0, 14)} ${Math.floor(Math.random() * 900 + 100)}`;
+}
+
+function nextBotName(room: RoomState): string {
+  const used = new Set(Object.values(room.players).map((player) => player.name.toLocaleLowerCase()));
+  let index = 1;
+  let name = `Bandit ${index}`;
+
+  while (used.has(name.toLocaleLowerCase())) {
+    index += 1;
+    name = `Bandit ${index}`;
+  }
+
+  return name;
+}
+
+function collapseQueuedInputs(queue: InputFrame[], lastInputSeq: number): InputFrame | undefined {
+  const inputs = queue.filter((input) => input.seq > lastInputSeq);
+  const latest = inputs.at(-1);
+  if (!latest) {
+    return undefined;
+  }
+
+  return {
+    ...latest,
+    fireGun: inputs.some((input) => input.fireGun),
+    fireMissile: inputs.some((input) => input.fireMissile),
+    fireFlare: inputs.some((input) => input.fireFlare)
+  };
 }
 
 function defaultRoomId(): string {

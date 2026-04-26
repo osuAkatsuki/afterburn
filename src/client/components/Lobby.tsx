@@ -15,6 +15,8 @@ type LobbyProps = {
   onJoinRoom: () => void;
   onShareRoom: () => void;
   onReadyChange: (ready: boolean) => void;
+  onAddBot: () => void;
+  onRemoveBot: (playerId: string) => void;
   onStartRound: (force?: boolean) => void;
 };
 
@@ -32,6 +34,8 @@ export function Lobby({
   onJoinRoom,
   onShareRoom,
   onReadyChange,
+  onAddBot,
+  onRemoveBot,
   onStartRound
 }: LobbyProps) {
   if (!visible) {
@@ -47,6 +51,7 @@ export function Lobby({
   const isHost = Boolean(room && room.hostId === playerId);
   const allReady = totalPlayers > 0 && readyCount === totalPlayers;
   const canForceStart = isHost && localReady && !allReady && readyCount > 1;
+  const canEditBots = isHost && room?.phase !== "playing";
   const startLabel = room?.phase === "ended" ? "Restart" : "Launch";
 
   return (
@@ -96,6 +101,11 @@ export function Lobby({
               <button type="button" onClick={onShareRoom}>
                 Share Link
               </button>
+              {canEditBots && (
+                <button type="button" onClick={onAddBot} disabled={totalPlayers >= 6}>
+                  Add Bot
+                </button>
+              )}
               {isHost && allReady ? (
                 <button type="button" onClick={() => onStartRound(false)}>
                   {startLabel}
@@ -116,6 +126,13 @@ export function Lobby({
                   <span style={{ "--pilot": player.color } as React.CSSProperties} />
                   <strong>{player.name}</strong>
                   <em className={player.ready ? "ready" : ""}>{playerStatusLabel(room, player)}</em>
+                  {canEditBots && player.isBot ? (
+                    <button className="player-list-action" type="button" onClick={() => onRemoveBot(player.id)} aria-label={`Remove ${player.name}`}>
+                      Remove
+                    </button>
+                  ) : (
+                    <i className="player-list-action" aria-hidden="true" />
+                  )}
                 </li>
               ))}
             </ul>

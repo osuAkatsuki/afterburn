@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AFTERBURNER_SPEED,
+  AIRCRAFT_COLLISION_RADIUS,
   ARENA_RADIUS,
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
@@ -268,7 +269,7 @@ describe("shared simulation", () => {
     const second = room.players.p2;
 
     first.position = { x: ARENA_RADIUS * 0.5, y: 220, z: 0 };
-    second.position = { x: ARENA_RADIUS * 0.5 + PLAYER_HIT_RADIUS * 2 - 0.1, y: 220, z: 0 };
+    second.position = { x: ARENA_RADIUS * 0.5 + AIRCRAFT_COLLISION_RADIUS * 2 - 0.1, y: 220, z: 0 };
 
     const events = stepRoom(room, 0, 1050);
 
@@ -282,6 +283,22 @@ describe("shared simulation", () => {
     expect(second.deaths).toBe(1);
     expect(first.score).toBe(0);
     expect(second.score).toBe(0);
+  });
+
+  it("does not use weapon hit radius for aircraft collisions", () => {
+    const room = twoPlayerRoom();
+    const first = room.players.p1;
+    const second = room.players.p2;
+
+    first.position = { x: ARENA_RADIUS * 0.5, y: 220, z: 0 };
+    second.position = { x: ARENA_RADIUS * 0.5 + AIRCRAFT_COLLISION_RADIUS * 2 + 0.1, y: 220, z: 0 };
+
+    const events = stepRoom(room, 0, 1050);
+
+    expect(events).not.toContainEqual({ type: "crash", roomId: room.id, playerId: first.id, reason: "collision" });
+    expect(events).not.toContainEqual({ type: "crash", roomId: room.id, playerId: second.id, reason: "collision" });
+    expect(first.status).toBe("alive");
+    expect(second.status).toBe("alive");
   });
 
   it("applies bullet hits, awards kills, and respawns players", () => {
@@ -642,5 +659,18 @@ describe("shared simulation", () => {
 
     expect(room.phase).toBe("ended");
     expect(room.winnerId).toBe("p1");
+  });
+
+  it("keeps bots ready after a round ends", () => {
+    const room = twoPlayerRoom();
+    room.players.p2.isBot = true;
+    room.players.p1.ready = true;
+    room.players.p2.ready = false;
+
+    stepRoom(room, 1 / 30, room.endsAt + 1);
+
+    expect(room.phase).toBe("ended");
+    expect(room.players.p1.ready).toBe(false);
+    expect(room.players.p2.ready).toBe(true);
   });
 });

@@ -920,11 +920,28 @@ h2 {
 
 .player-list li {
   display: grid;
-  grid-template-columns: 12px 1fr auto;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   min-height: 34px;
   padding: 0 2px;
+}
+
+.player-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-list-action {
+  min-width: 58px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 0.72rem;
+}
+
+i.player-list-action {
+  visibility: hidden;
 }
 
 .status-line {
