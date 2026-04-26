@@ -640,7 +640,6 @@ function fireGun(room: RoomState, player: PlayerState, now: number, events: Comb
   };
   player.gunCooldown = GUN_COOLDOWN_SECONDS;
   player.gunAmmoRemaining = Math.max(0, player.gunAmmoRemaining - 1);
-  events.push({ type: "launch", roomId: room.id, playerId: player.id, weapon: "bullet" });
 }
 
 function fireMissile(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {

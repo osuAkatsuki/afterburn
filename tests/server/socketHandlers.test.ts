@@ -4,7 +4,7 @@ import { Server } from "socket.io";
 import { io as createClient, type Socket as ClientSocket } from "socket.io-client";
 import { afterEach, describe, expect, it } from "vitest";
 import { GameRoomManager } from "../../src/server/gameServer.js";
-import { registerGameSocketHandlers } from "../../src/server/socketHandlers.js";
+import { registerGameSocketHandlers, startGameLoop } from "../../src/server/socketHandlers.js";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -180,6 +180,43 @@ describe("socketHandlers", () => {
     expect(snapshot.room.players["host-client"]).toBeDefined();
     expect(snapshot.room.players["guest-client"]).toBeDefined();
   });
+
+  it("keeps emitting snapshots while gunfire creates projectiles", async () => {
+    const manager = new GameRoomManager(ids("FIRE1"));
+    const now = Date.now();
+    manager.createRoom("host", "Host", now);
+    manager.setReady("host", true, now + 1);
+    manager.startRoom("host", now + 2);
+    const host = manager.getRoom("FIRE1")?.players.host;
+    if (host) {
+      host.spawnProtectionUntil = undefined;
+      host.spawnProtectionRemainingMs = 0;
+    }
+
+    manager.setInput("host", { seq: 1, fireGun: true });
+
+    const emissions: Array<{ event: string; payload: unknown }> = [];
+    const io = {
+      to: () => ({
+        emit: (event: string, payload: unknown) => emissions.push({ event, payload })
+      })
+    } as unknown as TestServer;
+    const timer = startGameLoop(io, manager);
+
+    try {
+      await wait(240);
+    } finally {
+      clearInterval(timer);
+    }
+
+    const snapshots = emissions.filter((emission) => emission.event === "state:snapshot");
+    expect(snapshots.length).toBeGreaterThanOrEqual(2);
+    expect(emissions).not.toContainEqual({
+      event: "combat:event",
+      payload: { type: "launch", roomId: "FIRE1", playerId: "host", weapon: "bullet" }
+    });
+    expect(Object.values(manager.getRoom("FIRE1")?.projectiles ?? {}).filter((projectile) => projectile.type === "bullet").length).toBeGreaterThan(0);
+  });
 });
 
 async function createHarness(...roomIds: string[]): Promise<SocketHarness> {
@@ -234,6 +271,10 @@ function waitForSocketConnect(socket: TestClient): Promise<void> {
       resolve();
     });
   });
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function waitForEvent<Event extends keyof ServerToClientEvents>(

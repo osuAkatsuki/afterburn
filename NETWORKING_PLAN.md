@@ -56,7 +56,7 @@ Add these capabilities:
 ```text
 server player history -> lag-compensated combat traces -> capped rewind -> fair hit validation
 ordered input commands -> stable server replay -> better reconciliation
-volatile snapshots -> less stale-state delay -> reliable control events stay reliable
+transport hygiene -> less stale-state delay -> reliable control events stay reliable
 network QA profiles -> measurable iteration loop
 ```
 
@@ -227,7 +227,7 @@ Keep Socket.IO for now. It is good enough for the current deploy and friend-lobb
 
 ### Immediate Improvements
 
-- Emit high-rate `state:snapshot` as volatile where possible.
+- Keep `state:snapshot` reliable while Afterburn is on Socket.IO. Volatile snapshots can be revisited after input/control traffic is split from world snapshots; with Socket.IO fallback transports or write pressure, volatile snapshots can drop too aggressively during held-fire input.
 - Keep `room:joined`, `room:error`, `combat:event`, `round:ended`, room lifecycle events, and critical weapon/combat events reliable.
 - Measure serialized snapshot byte size in debug mode.
 - Avoid emitting lobby-only latency snapshots while playing unless the player scoreboard needs them immediately.
@@ -302,7 +302,7 @@ Initial targets:
 4. Add debug metrics for combat rewind and history clamping.
 5. Ship and test under local, regional, and cross-continent profiles.
 6. Replace input collapse with `PlayerInputQueue`.
-7. Make snapshots volatile and add snapshot byte-size telemetry.
+7. Add snapshot byte-size telemetry and defer volatile snapshots until the transport/input split is safer.
 8. Revisit bandwidth/delta snapshots only if metrics show a real problem.
 
 ## Design Decisions
