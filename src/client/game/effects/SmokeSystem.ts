@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { EFFECT_PRESETS } from "./effectPresets.js";
 
 type SmokePuff = {
   batch: SmokeBatch;
@@ -44,8 +45,8 @@ export class SmokeSystem {
   constructor(private readonly scene: THREE.Scene) {}
 
   initialize(): void {
-    this.smokeNormalBatch = this.createSmokeBatch(260, THREE.NormalBlending);
-    this.smokeAdditiveBatch = this.createSmokeBatch(96, THREE.AdditiveBlending);
+    this.smokeNormalBatch = this.createSmokeBatch(EFFECT_PRESETS.smokeBatches.normalCapacity, THREE.NormalBlending);
+    this.smokeAdditiveBatch = this.createSmokeBatch(EFFECT_PRESETS.smokeBatches.additiveCapacity, THREE.AdditiveBlending);
     this.scene.add(this.smokeNormalBatch.mesh, this.smokeAdditiveBatch.mesh);
   }
 
@@ -64,7 +65,7 @@ export class SmokeSystem {
       this.updateSmokeInstance(puff, progress);
     }
 
-    while (this.smokePuffs.length > 220) {
+    while (this.smokePuffs.length > EFFECT_PRESETS.smokeBatches.maxActivePuffs) {
       this.releaseSmokePuff(0);
     }
 
@@ -92,7 +93,7 @@ export class SmokeSystem {
     batch.mesh.count = batch.activeCount;
 
     const lateral = new THREE.Vector3((Math.random() - 0.5) * size, (Math.random() - 0.5) * size, (Math.random() - 0.5) * size);
-    this.smokePosition.copy(origin).add(lateral.multiplyScalar(0.45));
+    this.smokePosition.copy(origin).add(lateral.multiplyScalar(EFFECT_PRESETS.smokeBatches.spawnLateralScale));
     const tint = new THREE.Color(color);
     batch.tint.setXYZ(slot, tint.r, tint.g, tint.b);
     batch.tint.needsUpdate = true;
@@ -114,17 +115,18 @@ export class SmokeSystem {
   }
 
   spawnMissileTrail(origin: THREE.Vector3, missileDirection: THREE.Vector3): void {
+    const preset = EFFECT_PRESETS.missileTrail;
     this.spawnPuff({
       origin,
       velocity: missileDirection
         .clone()
-        .multiplyScalar(-6)
-        .add(new THREE.Vector3((Math.random() - 0.5) * 2.8, (Math.random() - 0.5) * 2.8, (Math.random() - 0.5) * 2.8)),
-      color: "#d6d3ce",
-      opacity: 0.36,
-      life: 1.7 + Math.random() * 0.55,
-      size: 1.6 + Math.random() * 1.2,
-      growth: 2.2
+        .multiplyScalar(preset.backwardVelocity)
+        .add(new THREE.Vector3((Math.random() - 0.5) * preset.randomVelocitySpread, (Math.random() - 0.5) * preset.randomVelocitySpread, (Math.random() - 0.5) * preset.randomVelocitySpread)),
+      color: preset.color,
+      opacity: preset.opacity,
+      life: preset.lifeBase + Math.random() * preset.lifeSpread,
+      size: preset.sizeBase + Math.random() * preset.sizeSpread,
+      growth: preset.growth
     });
   }
 
@@ -140,7 +142,11 @@ export class SmokeSystem {
   }
 
   private createSmokeBatch(capacity: number, blending: THREE.Blending): SmokeBatch {
-    const geometry = new THREE.SphereGeometry(1, 8, 6);
+    const geometry = new THREE.SphereGeometry(
+      1,
+      EFFECT_PRESETS.smokeBatches.geometryWidthSegments,
+      EFFECT_PRESETS.smokeBatches.geometryHeightSegments
+    );
     const tint = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
     const opacity = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     tint.setUsage(THREE.DynamicDrawUsage);

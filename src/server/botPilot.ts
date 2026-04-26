@@ -1,7 +1,5 @@
 import {
-  ARENA_RADIUS,
   BULLET_SPEED,
-  GUN_CONVERGENCE_DISTANCE,
   MAX_ALTITUDE,
   MISSILE_LOCK_RANGE,
   MISSILE_SEEKER_GIMBAL_DOT,
@@ -21,57 +19,8 @@ import {
   wrapAngle
 } from "../shared/math.js";
 import { isPlayerSpawnProtected, neutralInput } from "../shared/simulation.js";
-import type { BotSkill, InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "../shared/types.js";
-
-const TARGET_LEAD_SECONDS = 0.75;
-const SAFE_ALTITUDE = 115;
-const HIGH_ALTITUDE = MAX_ALTITUDE * 0.86;
-const BOUNDARY_RECOVERY_RADIUS = ARENA_RADIUS * 0.82;
-const CENTER_RECOVERY_RADIUS = ARENA_RADIUS * 0.92;
-const BOUNDARY_RECOVERY_TANGENT = 900;
-const BOT_KEEPOUT_RANGE = 380;
-const BOT_MERGE_RANGE = 680;
-const BOT_BREAKAWAY_FORWARD = 560;
-const BOT_BREAKAWAY_SIDE = 520;
-const BOT_BREAKAWAY_CLIMB = 150;
-const BOT_OFFSET_PURSUIT_SIDE = 260;
-const BOT_GUN_RANGE = GUN_CONVERGENCE_DISTANCE * 0.95;
-const BOT_GUN_ALIGNMENT = 0.975;
-const BOT_MISSILE_ALIGNMENT = 0.94;
-const BOT_EVADE_SIDE = 720;
-const BOT_EVADE_FORWARD = 180;
-const BOT_EVADE_CLIMB = 180;
-
-type BotSkillProfile = {
-  defensiveRange: number;
-  evasionNoise: number;
-  flareDetectionChance: number;
-  flareReactionMinMs: number;
-  flareReactionSpreadMs: number;
-  flareDeployMinRange: number;
-  flareDeploySpreadRange: number;
-};
-
-const BOT_SKILL_PROFILES: Record<BotSkill, BotSkillProfile> = {
-  regular: {
-    defensiveRange: 780,
-    evasionNoise: 0.32,
-    flareDetectionChance: 0.68,
-    flareReactionMinMs: 650,
-    flareReactionSpreadMs: 950,
-    flareDeployMinRange: 80,
-    flareDeploySpreadRange: 300
-  },
-  ace: {
-    defensiveRange: 920,
-    evasionNoise: 0.08,
-    flareDetectionChance: 0.99,
-    flareReactionMinMs: 420,
-    flareReactionSpreadMs: 680,
-    flareDeployMinRange: 220,
-    flareDeploySpreadRange: 210
-  }
-};
+import type { InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "../shared/types.js";
+import { BOT_SKILL_PROFILES, BOT_TUNING, type BotSkillProfile } from "./botTuning.js";
 
 type BotPlan = {
   point: Vec3;
@@ -102,10 +51,17 @@ export function createBotInput(room: RoomState, bot: PlayerState, now: number): 
   input.pitch = steering.pitch;
   input.yaw = steering.yaw;
   input.roll = steering.roll;
-  input.afterburner = Boolean(recoveryPoint || breakingAway || (!defending && targetRange > 1200));
+  input.afterburner = Boolean(recoveryPoint || breakingAway || (!defending && targetRange > BOT_TUNING.engagement.longRangeAfterburnerRange));
   input.aimDirection = target ? getSeekerAimDirection(bot, target) : undefined;
-  input.fireGun = Boolean(!breakingAway && !defending && target && targetRange < BOT_GUN_RANGE && targetAhead > BOT_GUN_ALIGNMENT);
-  input.fireMissile = Boolean(!breakingAway && !defending && target && bot.missileLockAcquired && targetRange < MISSILE_LOCK_RANGE && targetAhead > BOT_MISSILE_ALIGNMENT);
+  input.fireGun = Boolean(!breakingAway && !defending && target && targetRange < BOT_TUNING.engagement.gunRange && targetAhead > BOT_TUNING.engagement.gunAlignment);
+  input.fireMissile = Boolean(
+    !breakingAway &&
+      !defending &&
+      target &&
+      bot.missileLockAcquired &&
+      targetRange < MISSILE_LOCK_RANGE &&
+      targetAhead > BOT_TUNING.engagement.missileAlignment
+  );
   input.fireFlare = shouldDeployFlare(room, bot, now, profile);
 
   return input;
@@ -120,12 +76,13 @@ function findBotTarget(room: RoomState, bot: PlayerState): PlayerState | undefin
       const range = distance(bot.position, player.position);
       const direction = normalize(subtract(player.position, bot.position));
       const alignment = dot(forward, direction);
-      const damagedBonus = clamp((100 - player.health) / 100, 0, 1) * 0.55;
-      const leaderBonus = clamp(player.score, 0, 12) * 0.08;
-      const rangeScore = 900 / Math.max(260, range);
+      const damagedBonus = clamp((100 - player.health) / 100, 0, 1) * BOT_TUNING.targetingScore.damagedBonusScale;
+      const leaderBonus =
+        clamp(player.score, 0, BOT_TUNING.targetingScore.maxLeaderScoreBonusKills) * BOT_TUNING.targetingScore.leaderBonusPerScore;
+      const rangeScore = BOT_TUNING.targetingScore.rangeScoreNumerator / Math.max(BOT_TUNING.targetingScore.minRangeForScore, range);
       return {
         player,
-        score: rangeScore + alignment * 0.55 + damagedBonus + leaderBonus
+        score: rangeScore + alignment * BOT_TUNING.targetingScore.alignmentScale + damagedBonus + leaderBonus
       };
     })
     .sort((a, b) => b.score - a.score || a.player.id.localeCompare(b.player.id))[0]?.player;
@@ -134,29 +91,32 @@ function findBotTarget(room: RoomState, bot: PlayerState): PlayerState | undefin
 function getRecoveryPoint(bot: PlayerState): Vec3 | undefined {
   const horizontalRange = Math.hypot(bot.position.x, bot.position.z);
 
-  if (bot.position.y < SAFE_ALTITUDE) {
+  if (bot.position.y < BOT_TUNING.altitude.safe) {
     return {
-      x: bot.position.x * 0.72,
-      y: SAFE_ALTITUDE + 140,
-      z: bot.position.z * 0.72
+      x: bot.position.x * BOT_TUNING.boundaryRecovery.lowAltitudeCenterPull,
+      y: BOT_TUNING.altitude.safe + BOT_TUNING.altitude.lowRecoveryClimb,
+      z: bot.position.z * BOT_TUNING.boundaryRecovery.lowAltitudeCenterPull
     };
   }
 
-  if (bot.position.y > HIGH_ALTITUDE) {
+  if (bot.position.y > BOT_TUNING.altitude.high) {
     return {
-      x: bot.position.x * 0.84,
-      y: MAX_ALTITUDE * 0.52,
-      z: bot.position.z * 0.84
+      x: bot.position.x * BOT_TUNING.boundaryRecovery.highAltitudeCenterPull,
+      y: MAX_ALTITUDE * BOT_TUNING.altitude.highRecoveryAltitudeScale,
+      z: bot.position.z * BOT_TUNING.boundaryRecovery.highAltitudeCenterPull
     };
   }
 
-  if (horizontalRange > BOUNDARY_RECOVERY_RADIUS) {
-    const centerPull = horizontalRange > CENTER_RECOVERY_RADIUS ? 0 : 0.28;
+  if (horizontalRange > BOT_TUNING.boundaryRecovery.startRadius) {
+    const centerPull = horizontalRange > BOT_TUNING.boundaryRecovery.centerPullRadius ? 0 : BOT_TUNING.boundaryRecovery.softCenterPull;
     const tangent = horizontalRange > 0.001 ? { x: -bot.position.z / horizontalRange, y: 0, z: bot.position.x / horizontalRange } : { x: 1, y: 0, z: 0 };
     return {
-      x: -bot.position.x * centerPull + tangent.x * BOUNDARY_RECOVERY_TANGENT,
-      y: Math.max(SAFE_ALTITUDE + 80, Math.min(bot.position.y, MAX_ALTITUDE * 0.62)),
-      z: -bot.position.z * centerPull + tangent.z * BOUNDARY_RECOVERY_TANGENT
+      x: -bot.position.x * centerPull + tangent.x * BOT_TUNING.boundaryRecovery.tangentDistance,
+      y: Math.max(
+        BOT_TUNING.altitude.safe + BOT_TUNING.altitude.boundaryRecoveryClearance,
+        Math.min(bot.position.y, MAX_ALTITUDE * BOT_TUNING.altitude.boundaryRecoveryAltitudeScale)
+      ),
+      z: -bot.position.z * centerPull + tangent.z * BOT_TUNING.boundaryRecovery.tangentDistance
     };
   }
 
@@ -168,17 +128,17 @@ function getAimPoint(bot: PlayerState, target: PlayerState | undefined): Vec3 | 
     return undefined;
   }
 
-  const leadSeconds = clamp(distance(bot.position, target.position) / BULLET_SPEED, 0.18, TARGET_LEAD_SECONDS);
+  const leadSeconds = clamp(distance(bot.position, target.position) / BULLET_SPEED, BOT_TUNING.targetLead.minSeconds, BOT_TUNING.targetLead.maxSeconds);
   return add(target.position, scale(target.velocity, leadSeconds));
 }
 
 function getEngagementPlan(bot: PlayerState, target: PlayerState): BotPlan {
   const range = distance(bot.position, target.position);
-  if (range < BOT_KEEPOUT_RANGE || isCollisionCourse(bot, target, range)) {
+  if (range < BOT_TUNING.engagement.keepoutRange || isCollisionCourse(bot, target, range)) {
     return { point: getBreakawayPoint(bot, target), mode: "breakaway" };
   }
 
-  if (range < BOT_MERGE_RANGE) {
+  if (range < BOT_TUNING.engagement.mergeRange) {
     return { point: getOffsetPursuitPoint(bot, target), mode: "offset" };
   }
 
@@ -186,7 +146,7 @@ function getEngagementPlan(bot: PlayerState, target: PlayerState): BotPlan {
 }
 
 function isCollisionCourse(bot: PlayerState, target: PlayerState, range: number): boolean {
-  if (range > BOT_MERGE_RANGE) {
+  if (range > BOT_TUNING.engagement.mergeRange) {
     return false;
   }
 
@@ -194,7 +154,7 @@ function isCollisionCourse(bot: PlayerState, target: PlayerState, range: number)
   const toTarget = normalize(subtract(target.position, bot.position));
   const targetSpeed = length(target.velocity);
   const targetClosing = targetSpeed > 0.001 ? dot(normalize(target.velocity), scale(toTarget, -1)) : 0;
-  return dot(forward, toTarget) > 0.72 && targetClosing > 0.25;
+  return dot(forward, toTarget) > BOT_TUNING.engagement.collisionCourseAlignment && targetClosing > BOT_TUNING.engagement.collisionCourseTargetClosing;
 }
 
 function getBreakawayPoint(bot: PlayerState, target: PlayerState): Vec3 {
@@ -202,9 +162,9 @@ function getBreakawayPoint(bot: PlayerState, target: PlayerState): Vec3 {
   const forward = normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, orientation));
   const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
   const side = botBreakSide(bot, target);
-  return add(add(add(bot.position, scale(forward, BOT_BREAKAWAY_FORWARD)), scale(right, side * BOT_BREAKAWAY_SIDE)), {
+  return add(add(add(bot.position, scale(forward, BOT_TUNING.engagement.breakawayForward)), scale(right, side * BOT_TUNING.engagement.breakawaySide)), {
     x: 0,
-    y: BOT_BREAKAWAY_CLIMB,
+    y: BOT_TUNING.engagement.breakawayClimb,
     z: 0
   });
 }
@@ -213,9 +173,9 @@ function getOffsetPursuitPoint(bot: PlayerState, target: PlayerState): Vec3 {
   const orientation = bot.orientation ?? quaternionFromRotation(bot.rotation);
   const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
   const side = botBreakSide(bot, target);
-  return add(add(getAimPoint(bot, target) ?? target.position, scale(right, side * BOT_OFFSET_PURSUIT_SIDE)), {
+  return add(add(getAimPoint(bot, target) ?? target.position, scale(right, side * BOT_TUNING.engagement.offsetPursuitSide)), {
     x: 0,
-    y: 60,
+    y: BOT_TUNING.engagement.offsetPursuitClimb,
     z: 0
   });
 }
@@ -225,13 +185,20 @@ function botForward(bot: PlayerState): Vec3 {
 }
 
 function patrol(bot: PlayerState): { pitch: number; yaw: number; roll: number; ahead: number } {
-  const targetAngle = Math.atan2(-bot.position.x, -bot.position.z) + Math.PI * 0.28;
-  const desiredRoll = clamp(wrapAngle(targetAngle - bot.rotation.yaw) * 0.7, -0.72, 0.72);
+  const targetAngle = Math.atan2(-bot.position.x, -bot.position.z) + BOT_TUNING.steering.patrolOrbitAngle;
+  const desiredRoll = clamp(
+    wrapAngle(targetAngle - bot.rotation.yaw) * BOT_TUNING.steering.patrolRollScale,
+    -BOT_TUNING.steering.patrolMaxRoll,
+    BOT_TUNING.steering.patrolMaxRoll
+  );
 
   return {
-    pitch: bot.position.y < OCEAN_LEVEL + SAFE_ALTITUDE + 30 ? 0.55 : 0.18,
+    pitch:
+      bot.position.y < OCEAN_LEVEL + BOT_TUNING.altitude.safe + BOT_TUNING.altitude.lowPatrolClearance
+        ? BOT_TUNING.steering.patrolLowPitch
+        : BOT_TUNING.steering.patrolCruisePitch,
     yaw: 0,
-    roll: clamp(wrapAngle(desiredRoll - bot.rotation.roll) * 1.85, -1, 1),
+    roll: clamp(wrapAngle(desiredRoll - bot.rotation.roll) * BOT_TUNING.steering.patrolRollCorrection, -1, 1),
     ahead: 1
   };
 }
@@ -261,9 +228,12 @@ function getMissileEvasionPoint(bot: PlayerState, missile: ProjectileState, prof
   const noise = (deterministicUnit(bot.id, missile.id, "evade-noise") * 2 - 1) * profile.evasionNoise;
   const lateral = normalize(add(lateralBase, scale(forward, noise)));
 
-  return add(add(add(bot.position, scale(lateral, side * BOT_EVADE_SIDE)), scale(forward, BOT_EVADE_FORWARD)), {
+  return add(add(add(bot.position, scale(lateral, side * BOT_TUNING.evasion.sideDistance)), scale(forward, BOT_TUNING.evasion.forwardDistance)), {
     x: 0,
-    y: bot.position.y < SAFE_ALTITUDE + 160 ? BOT_EVADE_CLIMB : BOT_EVADE_CLIMB * 0.35,
+    y:
+      bot.position.y < BOT_TUNING.altitude.safe + BOT_TUNING.evasion.lowAltitudeExtraClimb
+        ? BOT_TUNING.evasion.climb
+        : BOT_TUNING.evasion.climb * BOT_TUNING.evasion.highAltitudeClimbScale,
     z: 0
   });
 }
@@ -277,14 +247,19 @@ function steerToward(bot: PlayerState, point: Vec3): { pitch: number; yaw: numbe
   const lateral = dot(toPoint, right);
   const vertical = dot(toPoint, up);
   const ahead = dot(toPoint, forward);
-  const desiredRoll = clamp(lateral * 1.35, -0.95, 0.95);
+  const desiredRoll = clamp(lateral * BOT_TUNING.steering.desiredRollScale, -BOT_TUNING.steering.maxDesiredRoll, BOT_TUNING.steering.maxDesiredRoll);
   const rollError = wrapAngle(desiredRoll - bot.rotation.roll);
-  const altitudeBias = bot.position.y < SAFE_ALTITUDE ? 0.38 : bot.position.y > HIGH_ALTITUDE ? -0.32 : 0;
+  const altitudeBias =
+    bot.position.y < BOT_TUNING.altitude.safe
+      ? BOT_TUNING.steering.lowAltitudePitchBias
+      : bot.position.y > BOT_TUNING.altitude.high
+        ? BOT_TUNING.steering.highAltitudePitchBias
+        : 0;
 
   return {
-    pitch: clamp(vertical * 1.55 + Math.abs(lateral) * 0.68 + altitudeBias, -1, 1),
-    yaw: clamp(lateral * 0.28, -0.42, 0.42),
-    roll: clamp(rollError * 2.15, -1, 1),
+    pitch: clamp(vertical * BOT_TUNING.steering.pitchVerticalScale + Math.abs(lateral) * BOT_TUNING.steering.pitchLateralLiftScale + altitudeBias, -1, 1),
+    yaw: clamp(lateral * BOT_TUNING.steering.yawScale, -BOT_TUNING.steering.maxYaw, BOT_TUNING.steering.maxYaw),
+    roll: clamp(rollError * BOT_TUNING.steering.rollCorrectionScale, -1, 1),
     ahead
   };
 }
@@ -325,7 +300,7 @@ function projectileClosingRange(projectile: ProjectileState, bot: PlayerState): 
   const missileForward = normalize(projectile.velocity);
   const closing = dot(missileForward, toBot);
 
-  return closing > 0.55 ? distance(projectile.position, bot.position) : Number.POSITIVE_INFINITY;
+  return closing > BOT_TUNING.evasion.missileClosingDot ? distance(projectile.position, bot.position) : Number.POSITIVE_INFINITY;
 }
 
 function botBreakSide(bot: PlayerState, target: PlayerState): number {

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ARENA_RADIUS, TERRAIN_ISLANDS } from "../../../shared/constants.js";
 import type { TerrainIsland } from "../../../shared/constants.js";
+import { OCEAN_VISUAL_CONFIG } from "./oceanVisualConfig.js";
 
 type ShoreFoam = {
   mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
@@ -30,7 +31,10 @@ export class OceanSystem {
   private readonly waterGlintPosition = new THREE.Vector3();
   private readonly waterGlintScale = new THREE.Vector3();
   private readonly waterGlintEuler = new THREE.Euler();
-  private readonly waterGlintWind = new THREE.Vector2(Math.cos(-0.28), Math.sin(-0.28));
+  private readonly waterGlintWind = new THREE.Vector2(
+    Math.cos(OCEAN_VISUAL_CONFIG.waterGlints.windAngle),
+    Math.sin(OCEAN_VISUAL_CONFIG.waterGlints.windAngle)
+  );
   private ocean?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
   private oceanBasePositions?: Float32Array;
   private waterGlintMesh?: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -51,16 +55,20 @@ export class OceanSystem {
 
   createShoreFoam(island: TerrainIsland, group: THREE.Group): void {
     const foam = new THREE.Mesh(
-      new THREE.RingGeometry(island.beachRadius * 1.005, island.beachRadius * 1.055, 96),
+      new THREE.RingGeometry(
+        island.beachRadius * OCEAN_VISUAL_CONFIG.shoreFoam.innerRadiusScale,
+        island.beachRadius * OCEAN_VISUAL_CONFIG.shoreFoam.outerRadiusScale,
+        OCEAN_VISUAL_CONFIG.shoreFoam.segments
+      ),
       new THREE.MeshBasicMaterial({
-        color: "#d9fbff",
+        color: OCEAN_VISUAL_CONFIG.shoreFoam.color,
         transparent: true,
         opacity: 0.15,
         depthWrite: false
       })
     );
     foam.rotation.x = -Math.PI / 2;
-    foam.position.y = 0.18;
+    foam.position.y = OCEAN_VISUAL_CONFIG.shoreFoam.positionY;
     foam.scale.set(island.beachScaleX, island.beachScaleZ, 1);
     foam.renderOrder = 1;
     foam.userData.ownerSystem = OCEAN_SYSTEM_OWNER;
@@ -101,26 +109,32 @@ export class OceanSystem {
   }
 
   private createOcean(): void {
-    const geometry = new THREE.PlaneGeometry(ARENA_RADIUS * 5, ARENA_RADIUS * 5, 80, 80);
+    const surfaceSize = ARENA_RADIUS * OCEAN_VISUAL_CONFIG.surface.arenaScale;
+    const geometry = new THREE.PlaneGeometry(
+      surfaceSize,
+      surfaceSize,
+      OCEAN_VISUAL_CONFIG.surface.subdivisions,
+      OCEAN_VISUAL_CONFIG.surface.subdivisions
+    );
     this.oceanBasePositions = (geometry.attributes.position.array as Float32Array).slice();
     this.applyOceanVertexColors(geometry);
 
     this.ocean = new THREE.Mesh(
       geometry,
       new THREE.MeshPhysicalMaterial({
-        color: "#0b6f86",
+        color: OCEAN_VISUAL_CONFIG.surface.material.color,
         vertexColors: true,
-        roughness: 0.34,
-        metalness: 0.02,
-        clearcoat: 0.38,
-        clearcoatRoughness: 0.36,
-        reflectivity: 0.24,
-        emissive: "#063342",
-        emissiveIntensity: 0.055
+        roughness: OCEAN_VISUAL_CONFIG.surface.material.roughness,
+        metalness: OCEAN_VISUAL_CONFIG.surface.material.metalness,
+        clearcoat: OCEAN_VISUAL_CONFIG.surface.material.clearcoat,
+        clearcoatRoughness: OCEAN_VISUAL_CONFIG.surface.material.clearcoatRoughness,
+        reflectivity: OCEAN_VISUAL_CONFIG.surface.material.reflectivity,
+        emissive: OCEAN_VISUAL_CONFIG.surface.material.emissive,
+        emissiveIntensity: OCEAN_VISUAL_CONFIG.surface.material.emissiveIntensity
       })
     );
     this.ocean.rotation.x = -Math.PI / 2;
-    this.ocean.position.y = -1;
+    this.ocean.position.y = OCEAN_VISUAL_CONFIG.surface.positionY;
     this.ocean.receiveShadow = true;
     this.scene.add(this.ocean);
   }
@@ -128,20 +142,24 @@ export class OceanSystem {
   private applyOceanVertexColors(geometry: THREE.PlaneGeometry): void {
     const positions = geometry.attributes.position.array as Float32Array;
     const colors: number[] = [];
-    const deep = new THREE.Color("#07586c");
-    const mid = new THREE.Color("#0d7f92");
-    const shallow = new THREE.Color("#139aac");
+    const deep = new THREE.Color(OCEAN_VISUAL_CONFIG.vertexColor.deep);
+    const mid = new THREE.Color(OCEAN_VISUAL_CONFIG.vertexColor.mid);
+    const shallow = new THREE.Color(OCEAN_VISUAL_CONFIG.vertexColor.shallow);
 
     for (let i = 0; i < positions.length; i += 3) {
       const worldX = positions[i];
       const worldZ = -positions[i + 1];
-      const broadVariation =
-        Math.sin(worldX * 0.0011 + worldZ * 0.0007) * 0.35 +
-        Math.sin(worldX * -0.0008 + worldZ * 0.0013) * 0.28 +
-        Math.sin((worldX + worldZ) * 0.00042) * 0.18;
+      const broadVariation = OCEAN_VISUAL_CONFIG.vertexColor.broadVariation.reduce(
+        (sum, layer) => sum + Math.sin(worldX * layer.xFrequency + worldZ * layer.zFrequency) * layer.amplitude,
+        0
+      );
       const nearShore = 1 - this.shoreDamping(worldX, worldZ);
-      const mix = THREE.MathUtils.clamp(0.48 + broadVariation + nearShore * 0.28, 0, 1);
-      const color = deep.clone().lerp(mid, mix).lerp(shallow, nearShore * 0.35);
+      const mix = THREE.MathUtils.clamp(
+        OCEAN_VISUAL_CONFIG.vertexColor.baseMix + broadVariation + nearShore * OCEAN_VISUAL_CONFIG.vertexColor.nearShoreMix,
+        0,
+        1
+      );
+      const color = deep.clone().lerp(mid, mix).lerp(shallow, nearShore * OCEAN_VISUAL_CONFIG.vertexColor.shallowShoreMix);
       colors.push(color.r, color.g, color.b);
     }
 
@@ -149,46 +167,53 @@ export class OceanSystem {
   }
 
   private createWaterGlints(): void {
-    const windAngle = -0.28;
     const material = new THREE.MeshBasicMaterial({
-      color: "#e6fbff",
+      color: OCEAN_VISUAL_CONFIG.waterGlints.color,
       transparent: true,
-      opacity: 0.08,
+      opacity: OCEAN_VISUAL_CONFIG.waterGlints.materialOpacity,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       vertexColors: true
     });
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, 85);
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, OCEAN_VISUAL_CONFIG.waterGlints.maxCount);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.renderOrder = 0;
     this.waterGlintMesh = mesh;
     this.scene.add(mesh);
 
-    for (let i = 0; i < 85; i += 1) {
+    for (let i = 0; i < OCEAN_VISUAL_CONFIG.waterGlints.maxCount; i += 1) {
       const angle = Math.random() * Math.PI * 2;
-      const radius = 280 + Math.random() * ARENA_RADIUS * 2.15;
+      const radius =
+        OCEAN_VISUAL_CONFIG.waterGlints.minRadius +
+        Math.random() * ARENA_RADIUS * OCEAN_VISUAL_CONFIG.waterGlints.arenaRadiusScale;
       const x = Math.sin(angle) * radius;
       const z = Math.cos(angle) * radius;
-      if (this.shoreDamping(x, z) < 0.82) {
+      if (this.shoreDamping(x, z) < OCEAN_VISUAL_CONFIG.waterGlints.shoreDampingMinimum) {
         continue;
       }
 
-      const width = 10 + Math.random() * 34;
-      const height = 0.9 + Math.random() * 2.6;
+      const width = OCEAN_VISUAL_CONFIG.waterGlints.minWidth + Math.random() * OCEAN_VISUAL_CONFIG.waterGlints.widthSpread;
+      const height = OCEAN_VISUAL_CONFIG.waterGlints.minHeight + Math.random() * OCEAN_VISUAL_CONFIG.waterGlints.heightSpread;
       const index = this.waterGlints.length;
-      const baseOpacity = 0.025 + Math.random() * 0.055;
+      const baseOpacity =
+        OCEAN_VISUAL_CONFIG.waterGlints.minOpacity + Math.random() * OCEAN_VISUAL_CONFIG.waterGlints.opacitySpread;
       this.waterGlints.push({
         origin: new THREE.Vector3(x, 0, z),
-        rotation: windAngle + (Math.random() - 0.5) * 0.28,
+        rotation: OCEAN_VISUAL_CONFIG.waterGlints.windAngle + (Math.random() - 0.5) * OCEAN_VISUAL_CONFIG.waterGlints.rotationSpread,
         width,
         height,
         phase: Math.random() * Math.PI * 2,
-        speed: 0.34 + Math.random() * 0.28,
-        drift: 8 + Math.random() * 24,
+        speed: OCEAN_VISUAL_CONFIG.waterGlints.minSpeed + Math.random() * OCEAN_VISUAL_CONFIG.waterGlints.speedSpread,
+        drift: OCEAN_VISUAL_CONFIG.waterGlints.minDrift + Math.random() * OCEAN_VISUAL_CONFIG.waterGlints.driftSpread,
         baseOpacity
       });
-      mesh.setColorAt(index, new THREE.Color("#e6fbff").multiplyScalar(0.48 + baseOpacity * 6));
+      mesh.setColorAt(
+        index,
+        new THREE.Color(OCEAN_VISUAL_CONFIG.waterGlints.color).multiplyScalar(
+          OCEAN_VISUAL_CONFIG.waterGlints.colorBase + baseOpacity * OCEAN_VISUAL_CONFIG.waterGlints.colorOpacityMultiplier
+        )
+      );
     }
 
     mesh.count = this.waterGlints.length;
@@ -212,10 +237,16 @@ export class OceanSystem {
     }
 
     const material = this.ocean.material;
-    material.roughness = 0.34 + Math.sin(t * 0.21) * 0.015;
-    material.clearcoat = 0.36 + Math.sin(t * 0.18) * 0.025;
+    material.roughness =
+      OCEAN_VISUAL_CONFIG.surface.material.roughness +
+      Math.sin(t * OCEAN_VISUAL_CONFIG.surface.animatedRoughness.frequency) *
+        OCEAN_VISUAL_CONFIG.surface.animatedRoughness.amplitude;
+    material.clearcoat =
+      OCEAN_VISUAL_CONFIG.surface.animatedClearcoat.base +
+      Math.sin(t * OCEAN_VISUAL_CONFIG.surface.animatedClearcoat.frequency) *
+        OCEAN_VISUAL_CONFIG.surface.animatedClearcoat.amplitude;
     this.ocean.geometry.attributes.position.needsUpdate = true;
-    this.oceanNormalFrame = (this.oceanNormalFrame + 1) % 2;
+    this.oceanNormalFrame = (this.oceanNormalFrame + 1) % OCEAN_VISUAL_CONFIG.surface.normalRecomputeFrames;
     if (this.oceanNormalFrame === 0) {
       this.ocean.geometry.computeVertexNormals();
     }
@@ -223,21 +254,24 @@ export class OceanSystem {
 
   private waveHeight(worldX: number, worldZ: number, t: number): number {
     const localY = -worldZ;
-    const waveHeight =
-      Math.sin(worldX * 0.0048 + t * 0.72) * 1.9 +
-      Math.sin((worldX + localY) * 0.0036 + t * 1.05) * 1.25 +
-      Math.sin(localY * 0.0078 - t * 0.86) * 0.82 +
-      Math.sin((worldX * 0.018 - localY * 0.011) + t * 2.15) * 0.28 +
-      Math.sin((worldX * 0.031 + localY * 0.027) - t * 2.85) * 0.1;
+    const waveHeight = OCEAN_VISUAL_CONFIG.waves.reduce(
+      (sum, wave) =>
+        sum + Math.sin(worldX * wave.xFrequency + localY * wave.localYFrequency + t * wave.timeFrequency) * wave.amplitude,
+      0
+    );
     return waveHeight * this.shoreDamping(worldX, worldZ);
   }
 
   private updateShoreFoam(now: number): void {
     const t = now * 0.001;
     this.shoreFoams.forEach((foam) => {
-      const pulse = 1 + Math.sin(t * 1.35 + foam.phase) * 0.012;
+      const pulse =
+        1 + Math.sin(t * OCEAN_VISUAL_CONFIG.shoreFoam.pulseFrequency + foam.phase) * OCEAN_VISUAL_CONFIG.shoreFoam.pulseAmplitude;
       foam.mesh.scale.set(foam.baseScaleX * pulse, foam.baseScaleZ * pulse, 1);
-      foam.mesh.material.opacity = 0.1 + (Math.sin(t * 1.8 + foam.phase) + 1) * 0.035;
+      foam.mesh.material.opacity =
+        OCEAN_VISUAL_CONFIG.shoreFoam.baseOpacity +
+        (Math.sin(t * OCEAN_VISUAL_CONFIG.shoreFoam.opacityFrequency + foam.phase) + 1) *
+          OCEAN_VISUAL_CONFIG.shoreFoam.opacityAmplitude;
     });
   }
 
@@ -252,8 +286,12 @@ export class OceanSystem {
       const drift = Math.sin(t * glint.speed + glint.phase) * glint.drift;
       const worldX = glint.origin.x + this.waterGlintWind.x * drift;
       const worldZ = glint.origin.z + this.waterGlintWind.y * drift;
-      const shimmer = 0.78 + Math.max(0, Math.sin(t * 1.6 + glint.phase)) * glint.baseOpacity * 7;
-      this.waterGlintPosition.set(worldX, this.waveHeight(worldX, worldZ, t) + 0.44, worldZ);
+      const shimmer =
+        OCEAN_VISUAL_CONFIG.waterGlints.shimmerBase +
+        Math.max(0, Math.sin(t * OCEAN_VISUAL_CONFIG.waterGlints.shimmerFrequency + glint.phase)) *
+          glint.baseOpacity *
+          OCEAN_VISUAL_CONFIG.waterGlints.shimmerOpacityMultiplier;
+      this.waterGlintPosition.set(worldX, this.waveHeight(worldX, worldZ, t) + OCEAN_VISUAL_CONFIG.waterGlints.waveOffsetY, worldZ);
       this.waterGlintEuler.set(-Math.PI / 2, 0, glint.rotation);
       this.waterGlintQuaternion.setFromEuler(this.waterGlintEuler);
       this.waterGlintScale.set(glint.width * shimmer, glint.height, 1);
@@ -271,15 +309,21 @@ export class OceanSystem {
       const localZ = worldZ - island.z;
       const shoreX = island.beachRadius * island.beachScaleX;
       const shoreZ = island.beachRadius * island.beachScaleZ;
-      if (Math.abs(localX) > shoreX * 1.34 || Math.abs(localZ) > shoreZ * 1.34) {
+      if (
+        Math.abs(localX) > shoreX * OCEAN_VISUAL_CONFIG.shoreDamping.outerScale ||
+        Math.abs(localZ) > shoreZ * OCEAN_VISUAL_CONFIG.shoreDamping.outerScale
+      ) {
         continue;
       }
 
       const normalizedX = localX / shoreX;
       const normalizedZ = localZ / shoreZ;
       const shorelineDistance = Math.hypot(normalizedX, normalizedZ);
-      if (shorelineDistance < 1.34) {
-        damping = Math.min(damping, smoothstep(0.98, 1.34, shorelineDistance));
+      if (shorelineDistance < OCEAN_VISUAL_CONFIG.shoreDamping.fadeEnd) {
+        damping = Math.min(
+          damping,
+          smoothstep(OCEAN_VISUAL_CONFIG.shoreDamping.fadeStart, OCEAN_VISUAL_CONFIG.shoreDamping.fadeEnd, shorelineDistance)
+        );
       }
     }
     return damping;

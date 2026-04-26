@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { RoomState } from "../../../shared/types.js";
 import type { JetRenderer } from "../entities/JetRenderer.js";
 import type { ProjectileRenderer } from "../entities/ProjectileRenderer.js";
+import { EFFECT_PRESETS } from "./effectPresets.js";
 import type { ExplosionSystem, WorldPosition } from "./ExplosionSystem.js";
 import type { SmokeSystem } from "./SmokeSystem.js";
 
@@ -32,36 +33,43 @@ export class CombatEffectsSystem {
     const origin = new THREE.Vector3(position.x, position.y, position.z);
 
     if (projectileType === "missile") {
-      this.spawnExplosion(position, "#f97316");
-      for (let i = 0; i < 18; i += 1) {
+      const preset = EFFECT_PRESETS.missileImpact;
+      this.spawnExplosion(position, preset.explosionColor);
+      for (let i = 0; i < preset.smokePuffCount; i += 1) {
+        const additive = i % preset.flameEveryNthPuff === 0;
         const direction = new THREE.Vector3(
-          (Math.random() - 0.5) * 24,
-          10 + Math.random() * 28,
-          (Math.random() - 0.5) * 24
+          (Math.random() - 0.5) * preset.lateralSpread,
+          preset.verticalVelocityBase + Math.random() * preset.verticalVelocitySpread,
+          (Math.random() - 0.5) * preset.lateralSpread
         );
         this.smokeSystem.spawnPuff({
           origin,
           velocity: direction,
-          color: i % 3 === 0 ? "#facc15" : "#6b7280",
-          opacity: i % 3 === 0 ? 0.22 : 0.38,
-          life: 1.25 + Math.random() * 0.9,
-          size: 2.8 + Math.random() * 2.8,
-          growth: 3.2,
-          additive: i % 3 === 0
+          color: additive ? preset.flameColor : preset.smokeColor,
+          opacity: additive ? preset.flameOpacity : preset.smokeOpacity,
+          life: preset.lifeBase + Math.random() * preset.lifeSpread,
+          size: preset.sizeBase + Math.random() * preset.sizeSpread,
+          growth: preset.growth,
+          additive
         });
       }
       return;
     }
 
-    this.spawnHitSpark(position, "#fef08a");
+    const preset = EFFECT_PRESETS.bulletImpact;
+    this.spawnHitSpark(position, preset.sparkColor);
     this.smokeSystem.spawnPuff({
       origin,
-      velocity: new THREE.Vector3((Math.random() - 0.5) * 8, 5 + Math.random() * 8, (Math.random() - 0.5) * 8),
-      color: "#d6d3ce",
-      opacity: 0.22,
-      life: 0.65,
-      size: 1.1,
-      growth: 2.1
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * preset.lateralVelocitySpread,
+        preset.verticalVelocityBase + Math.random() * preset.verticalVelocitySpread,
+        (Math.random() - 0.5) * preset.lateralVelocitySpread
+      ),
+      color: preset.smokeColor,
+      opacity: preset.opacity,
+      life: preset.life,
+      size: preset.size,
+      growth: preset.growth
     });
   }
 
@@ -73,38 +81,46 @@ export class CombatEffectsSystem {
       }
 
       const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(jet.quaternion).normalize();
-      const origin = jet.position.clone().addScaledVector(forward, -15);
+      const afterburnerPreset = EFFECT_PRESETS.afterburnerPuff;
+      const damagePreset = EFFECT_PRESETS.damageSmoke;
+      const origin = jet.position.clone().addScaledVector(forward, afterburnerPreset.engineOffset);
 
       if (player.input.afterburner && now >= (jet.userData.nextAfterburnerPuffAt as number)) {
-        jet.userData.nextAfterburnerPuffAt = now + 70;
+        jet.userData.nextAfterburnerPuffAt = now + afterburnerPreset.intervalMs;
         this.smokeSystem.spawnPuff({
           origin,
           velocity: forward
             .clone()
-            .multiplyScalar(-38)
-            .add(new THREE.Vector3((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3)),
-          color: "#8bd3ff",
-          opacity: 0.22,
-          life: 0.55,
-          size: 1.5,
-          growth: 2.6,
+            .multiplyScalar(afterburnerPreset.backwardVelocity)
+            .add(randomVector(afterburnerPreset.randomVelocitySpread)),
+          color: afterburnerPreset.color,
+          opacity: afterburnerPreset.opacity,
+          life: afterburnerPreset.life,
+          size: afterburnerPreset.size,
+          growth: afterburnerPreset.growth,
           additive: true
         });
       }
 
-      if (player.health > 0 && player.health <= 35 && now >= (jet.userData.nextDamageSmokeAt as number)) {
-        jet.userData.nextDamageSmokeAt = now + 115;
+      if (player.health > 0 && player.health <= damagePreset.healthThreshold && now >= (jet.userData.nextDamageSmokeAt as number)) {
+        jet.userData.nextDamageSmokeAt = now + damagePreset.intervalMs;
         this.smokeSystem.spawnPuff({
-          origin: origin.clone().add(new THREE.Vector3((Math.random() - 0.5) * 5, 0, (Math.random() - 0.5) * 5)),
+          origin: origin.clone().add(new THREE.Vector3((Math.random() - 0.5) * damagePreset.originSpread, 0, (Math.random() - 0.5) * damagePreset.originSpread)),
           velocity: forward
             .clone()
-            .multiplyScalar(-12)
-            .add(new THREE.Vector3((Math.random() - 0.5) * 6, 4 + Math.random() * 4, (Math.random() - 0.5) * 6)),
-          color: "#4b5563",
-          opacity: 0.32,
-          life: 1.35,
-          size: 2.4,
-          growth: 2.4
+            .multiplyScalar(damagePreset.backwardVelocity)
+            .add(
+              new THREE.Vector3(
+                (Math.random() - 0.5) * damagePreset.lateralVelocitySpread,
+                damagePreset.verticalVelocityBase + Math.random() * damagePreset.verticalVelocitySpread,
+                (Math.random() - 0.5) * damagePreset.lateralVelocitySpread
+              )
+            ),
+          color: damagePreset.color,
+          opacity: damagePreset.opacity,
+          life: damagePreset.life,
+          size: damagePreset.size,
+          growth: damagePreset.growth
         });
       }
     });
@@ -116,10 +132,14 @@ export class CombatEffectsSystem {
         return;
       }
 
-      projectile.userData.nextSmokeAt = now + 55;
+      projectile.userData.nextSmokeAt = now + EFFECT_PRESETS.missileTrail.intervalMs;
       const direction = new THREE.Vector3(0, 0, 1).applyQuaternion(projectile.quaternion).normalize();
-      const origin = projectile.position.clone().addScaledVector(direction, -8.6);
+      const origin = projectile.position.clone().addScaledVector(direction, EFFECT_PRESETS.missileTrail.exhaustOffset);
       this.smokeSystem.spawnMissileTrail(origin, direction);
     });
   }
+}
+
+function randomVector(spread: number): THREE.Vector3 {
+  return new THREE.Vector3((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread);
 }

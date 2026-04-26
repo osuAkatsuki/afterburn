@@ -1,5 +1,11 @@
 import * as THREE from "three";
 import type { PlayerState, RoomState } from "../../../shared/types.js";
+import {
+  JET_VISUAL_MODEL,
+  type JetControlSurfaceName,
+  type JetMaterialKey,
+  type Vec3Tuple
+} from "./jetVisualModel.js";
 
 type VisualJetTarget = {
   position: THREE.Vector3;
@@ -7,14 +13,7 @@ type VisualJetTarget = {
   visible: boolean;
 };
 
-type ControlSurfaces = {
-  leftAileron: THREE.Object3D;
-  rightAileron: THREE.Object3D;
-  elevatorLeft: THREE.Object3D;
-  elevatorRight: THREE.Object3D;
-  leftRudder: THREE.Object3D;
-  rightRudder: THREE.Object3D;
-};
+type ControlSurfaces = Record<JetControlSurfaceName, THREE.Object3D>;
 
 export class JetRenderer {
   private readonly jets = new Map<string, THREE.Group>();
@@ -85,11 +84,12 @@ export class JetRenderer {
       const heatGlow = jet.userData.heatGlow as THREE.Mesh | undefined;
       const heatGlowMaterial = jet.userData.heatGlowMaterial as THREE.MeshBasicMaterial | undefined;
       if (flame && flameMaterial && heatGlow && heatGlowMaterial) {
-        const pulse = 0.9 + Math.sin(performance.now() * 0.02) * 0.08;
-        flame.scale.set(afterburner ? 1.35 * pulse : 0.58, afterburner ? 1.35 * pulse : 0.58, afterburner ? 1.75 * pulse : 0.82);
-        flameMaterial.opacity = afterburner ? 0.84 : 0.28;
-        heatGlow.scale.set(afterburner ? 1.3 : 0.78, afterburner ? 0.72 : 0.44, afterburner ? 2.1 : 1.15);
-        heatGlowMaterial.opacity = afterburner ? 0.36 : 0.13;
+        const visual = JET_VISUAL_MODEL.afterburnerVisual;
+        const pulse = visual.pulseBase + Math.sin(performance.now() * visual.pulseFrequency) * visual.pulseAmplitude;
+        setScale(flame, afterburner ? scaleTuple(visual.flameScaleAfterburner, pulse) : visual.flameScaleCruise);
+        flameMaterial.opacity = afterburner ? visual.flameOpacityAfterburner : visual.flameOpacityCruise;
+        setScale(heatGlow, afterburner ? visual.heatGlowScaleAfterburner : visual.heatGlowScaleCruise);
+        heatGlowMaterial.opacity = afterburner ? visual.heatGlowOpacityAfterburner : visual.heatGlowOpacityCruise;
       }
 
       this.updateControlSurfaces(jet, player, dt);
@@ -115,205 +115,113 @@ export class JetRenderer {
 
   private createJet(player: PlayerState): THREE.Group {
     const group = new THREE.Group();
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: "#9ca8b3", roughness: 0.36, metalness: 0.42 });
-    const panelMaterial = new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.44, metalness: 0.32, side: THREE.DoubleSide });
-    const accentMaterial = new THREE.MeshStandardMaterial({ color: player.color, roughness: 0.38, metalness: 0.18, side: THREE.DoubleSide });
-    const wingMaterial = new THREE.MeshStandardMaterial({ color: "#7d8995", roughness: 0.42, metalness: 0.34, side: THREE.DoubleSide });
-    const controlSurfaceMaterial = new THREE.MeshStandardMaterial({ color: "#64748b", roughness: 0.48, metalness: 0.28, side: THREE.DoubleSide });
+    const materials: Record<JetMaterialKey, THREE.Material> = {
+      body: new THREE.MeshStandardMaterial({ color: "#9ca8b3", roughness: 0.36, metalness: 0.42 }),
+      panel: new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.44, metalness: 0.32, side: THREE.DoubleSide }),
+      accent: new THREE.MeshStandardMaterial({ color: player.color, roughness: 0.38, metalness: 0.18, side: THREE.DoubleSide }),
+      wing: new THREE.MeshStandardMaterial({ color: "#7d8995", roughness: 0.42, metalness: 0.34, side: THREE.DoubleSide }),
+      controlSurface: new THREE.MeshStandardMaterial({ color: "#64748b", roughness: 0.48, metalness: 0.28, side: THREE.DoubleSide })
+    };
 
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 2.05, 18, 18), bodyMaterial);
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        JET_VISUAL_MODEL.body.radiusTop,
+        JET_VISUAL_MODEL.body.radiusBottom,
+        JET_VISUAL_MODEL.body.length,
+        JET_VISUAL_MODEL.body.radialSegments
+      ),
+      materials.body
+    );
     body.rotation.x = Math.PI / 2;
     body.castShadow = true;
     group.add(body);
 
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(1.38, 5.7, 18), bodyMaterial);
+    const nose = new THREE.Mesh(
+      new THREE.ConeGeometry(
+        JET_VISUAL_MODEL.nose.radius,
+        JET_VISUAL_MODEL.nose.length,
+        JET_VISUAL_MODEL.nose.radialSegments
+      ),
+      materials.body
+    );
     nose.rotation.x = Math.PI / 2;
-    nose.position.z = 11.8;
+    setPosition(nose, JET_VISUAL_MODEL.nose.position);
     nose.castShadow = true;
     group.add(nose);
 
     const canopy = new THREE.Mesh(
-      new THREE.SphereGeometry(1.8, 18, 8),
+      new THREE.SphereGeometry(
+        JET_VISUAL_MODEL.canopy.radius,
+        JET_VISUAL_MODEL.canopy.widthSegments,
+        JET_VISUAL_MODEL.canopy.heightSegments
+      ),
       new THREE.MeshStandardMaterial({ color: "#0f172a", roughness: 0.12, metalness: 0.08, emissive: "#1e3a5f", emissiveIntensity: 0.18 })
     );
-    canopy.scale.set(0.85, 0.38, 1.55);
-    canopy.position.y = 1.45;
-    canopy.position.z = 3.6;
+    setScale(canopy, JET_VISUAL_MODEL.canopy.scale);
+    setPosition(canopy, JET_VISUAL_MODEL.canopy.position);
     group.add(canopy);
 
-    const leftWing = createTriangleMesh(
-      [
-        new THREE.Vector3(-1.35, -0.15, 1.2),
-        new THREE.Vector3(-17.5, -0.25, -3.2),
-        new THREE.Vector3(-2.5, -0.2, -8.2)
-      ],
-      wingMaterial
-    );
-    const rightWing = createTriangleMesh(
-      [
-        new THREE.Vector3(1.35, -0.15, 1.2),
-        new THREE.Vector3(17.5, -0.25, -3.2),
-        new THREE.Vector3(2.5, -0.2, -8.2)
-      ],
-      wingMaterial
-    );
-    group.add(leftWing, rightWing);
+    JET_VISUAL_MODEL.wingRoots.forEach((part) => {
+      const root = new THREE.Mesh(new THREE.BoxGeometry(...part.size), materials.panel);
+      setPosition(root, part.position);
+      root.rotation.y = part.rotationY;
+      root.castShadow = true;
+      root.receiveShadow = true;
+      group.add(root);
+    });
 
-    const leftWingRoot = new THREE.Mesh(new THREE.BoxGeometry(8.4, 0.38, 5.8), panelMaterial);
-    leftWingRoot.position.set(-4.9, -0.33, -2.4);
-    leftWingRoot.rotation.y = -0.16;
-    leftWingRoot.castShadow = true;
-    leftWingRoot.receiveShadow = true;
-    const rightWingRoot = leftWingRoot.clone();
-    rightWingRoot.position.x = 4.9;
-    rightWingRoot.rotation.y = 0.16;
-    group.add(leftWingRoot, rightWingRoot);
+    JET_VISUAL_MODEL.fixedTriangles.forEach((part) => {
+      group.add(createTriangleMesh(toVector3List(part.points), materials[part.material]));
+    });
 
-    const leftAileron = createHingedTriangleSurface(
-      [
-        new THREE.Vector3(-9.6, -0.06, -4.8),
-        new THREE.Vector3(-16.1, -0.06, -3.45),
-        new THREE.Vector3(-11.1, -0.06, -6.45)
-      ],
-      new THREE.Vector3(-11.4, -0.06, -4.65),
-      controlSurfaceMaterial
-    );
-    const rightAileron = createHingedTriangleSurface(
-      [
-        new THREE.Vector3(9.6, -0.06, -4.8),
-        new THREE.Vector3(16.1, -0.06, -3.45),
-        new THREE.Vector3(11.1, -0.06, -6.45)
-      ],
-      new THREE.Vector3(11.4, -0.06, -4.65),
-      controlSurfaceMaterial
-    );
-    group.add(leftAileron, rightAileron);
+    const controlSurfaces = {} as ControlSurfaces;
+    JET_VISUAL_MODEL.controlSurfaces.forEach((part) => {
+      const surface = createHingedTriangleSurface(toVector3List(part.points), toVector3(part.hinge), materials[part.material]);
+      controlSurfaces[part.surface] = surface;
+      group.add(surface);
+    });
 
-    const leftAccent = createTriangleMesh(
-      [
-        new THREE.Vector3(-11.5, -0.12, -3.8),
-        new THREE.Vector3(-17.2, -0.12, -3.2),
-        new THREE.Vector3(-12.5, -0.12, -5.4)
-      ],
-      accentMaterial
-    );
-    const rightAccent = createTriangleMesh(
-      [
-        new THREE.Vector3(11.5, -0.12, -3.8),
-        new THREE.Vector3(17.2, -0.12, -3.2),
-        new THREE.Vector3(12.5, -0.12, -5.4)
-      ],
-      accentMaterial
-    );
-    group.add(leftAccent, rightAccent);
-
-    const tailLeft = createTriangleMesh(
-      [
-        new THREE.Vector3(-1.15, 0.1, -8.3),
-        new THREE.Vector3(-7.6, 0, -11.2),
-        new THREE.Vector3(-1.65, 0.05, -13.8)
-      ],
-      panelMaterial
-    );
-    const tailRight = createTriangleMesh(
-      [
-        new THREE.Vector3(1.15, 0.1, -8.3),
-        new THREE.Vector3(7.6, 0, -11.2),
-        new THREE.Vector3(1.65, 0.05, -13.8)
-      ],
-      panelMaterial
-    );
-    group.add(tailLeft, tailRight);
-
-    const elevatorLeft = createHingedTriangleSurface(
-      [
-        new THREE.Vector3(-1.65, 0.12, -11.4),
-        new THREE.Vector3(-8.4, 0.08, -13.2),
-        new THREE.Vector3(-1.9, 0.1, -15.4)
-      ],
-      new THREE.Vector3(-3.3, 0.1, -12.05),
-      controlSurfaceMaterial
-    );
-    const elevatorRight = createHingedTriangleSurface(
-      [
-        new THREE.Vector3(1.65, 0.12, -11.4),
-        new THREE.Vector3(8.4, 0.08, -13.2),
-        new THREE.Vector3(1.9, 0.1, -15.4)
-      ],
-      new THREE.Vector3(3.3, 0.1, -12.05),
-      controlSurfaceMaterial
-    );
-    group.add(elevatorLeft, elevatorRight);
-
-    const leftFin = createTriangleMesh(
-      [
-        new THREE.Vector3(-1.15, 1.1, -8.4),
-        new THREE.Vector3(-2.85, 6.6, -11.7),
-        new THREE.Vector3(-1.65, 1.05, -14.2)
-      ],
-      panelMaterial
-    );
-    const rightFin = createTriangleMesh(
-      [
-        new THREE.Vector3(1.15, 1.1, -8.4),
-        new THREE.Vector3(2.85, 6.6, -11.7),
-        new THREE.Vector3(1.65, 1.05, -14.2)
-      ],
-      panelMaterial
-    );
-    group.add(leftFin, rightFin);
-
-    const leftRudder = createHingedTriangleSurface(
-      [
-        new THREE.Vector3(-1.85, 1.35, -10.1),
-        new THREE.Vector3(-2.55, 5.25, -11.85),
-        new THREE.Vector3(-1.85, 1.25, -13.55)
-      ],
-      new THREE.Vector3(-1.85, 2.7, -11.85),
-      controlSurfaceMaterial
-    );
-    const rightRudder = createHingedTriangleSurface(
-      [
-        new THREE.Vector3(1.85, 1.35, -10.1),
-        new THREE.Vector3(2.55, 5.25, -11.85),
-        new THREE.Vector3(1.85, 1.25, -13.55)
-      ],
-      new THREE.Vector3(1.85, 2.7, -11.85),
-      controlSurfaceMaterial
-    );
-    group.add(leftRudder, rightRudder);
-
-    const leftNozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.82, 1.6, 14), panelMaterial);
-    leftNozzle.rotation.x = Math.PI / 2;
-    leftNozzle.position.set(-0.9, 0, -10.4);
-    const rightNozzle = leftNozzle.clone();
-    rightNozzle.position.x = 0.9;
-    group.add(leftNozzle, rightNozzle);
+    JET_VISUAL_MODEL.nozzles.forEach((part) => {
+      const nozzle = new THREE.Mesh(
+        new THREE.CylinderGeometry(part.radiusTop, part.radiusBottom, part.length, part.radialSegments),
+        materials.panel
+      );
+      nozzle.rotation.x = Math.PI / 2;
+      setPosition(nozzle, part.position);
+      group.add(nozzle);
+    });
 
     const flameMaterial = new THREE.MeshBasicMaterial({ color: "#74c0ff", transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false });
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(1.55, 9, 18), flameMaterial);
+    const flame = new THREE.Mesh(
+      new THREE.ConeGeometry(
+        JET_VISUAL_MODEL.afterburnerFlame.radius,
+        JET_VISUAL_MODEL.afterburnerFlame.length,
+        JET_VISUAL_MODEL.afterburnerFlame.radialSegments
+      ),
+      flameMaterial
+    );
     flame.rotation.x = -Math.PI / 2;
-    flame.position.z = -14.2;
+    setPosition(flame, JET_VISUAL_MODEL.afterburnerFlame.position);
     group.add(flame);
 
     const heatGlowMaterial = new THREE.MeshBasicMaterial({ color: "#f97316", transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false });
-    const heatGlow = new THREE.Mesh(new THREE.SphereGeometry(2.7, 14, 8), heatGlowMaterial);
-    heatGlow.scale.set(1, 0.55, 1.6);
-    heatGlow.position.z = -12.5;
+    const heatGlow = new THREE.Mesh(
+      new THREE.SphereGeometry(
+        JET_VISUAL_MODEL.heatGlow.radius,
+        JET_VISUAL_MODEL.heatGlow.widthSegments,
+        JET_VISUAL_MODEL.heatGlow.heightSegments
+      ),
+      heatGlowMaterial
+    );
+    setScale(heatGlow, JET_VISUAL_MODEL.heatGlow.scale);
+    setPosition(heatGlow, JET_VISUAL_MODEL.heatGlow.position);
     group.add(heatGlow);
 
     group.userData.flame = flame;
     group.userData.flameMaterial = flameMaterial;
     group.userData.heatGlow = heatGlow;
     group.userData.heatGlowMaterial = heatGlowMaterial;
-    group.userData.controlSurfaces = {
-      leftAileron,
-      rightAileron,
-      elevatorLeft,
-      elevatorRight,
-      leftRudder,
-      rightRudder
-    };
+    group.userData.controlSurfaces = controlSurfaces;
     group.userData.nextAfterburnerPuffAt = 0;
     group.userData.nextDamageSmokeAt = 0;
 
@@ -327,20 +235,18 @@ export class JetRenderer {
       return;
     }
 
-    const alpha = 1 - Math.exp(-dt * 18);
-    const maxAileron = 0.48;
-    const maxElevator = 0.42;
-    const maxRudder = 0.34;
+    const motion = JET_VISUAL_MODEL.controlSurfaceMotion;
+    const alpha = 1 - Math.exp(-dt * motion.smoothing);
     const roll = player.input.roll;
     const pitch = player.input.pitch;
     const yaw = player.input.yaw;
 
-    surfaces.leftAileron.rotation.x = THREE.MathUtils.lerp(surfaces.leftAileron.rotation.x, roll * maxAileron, alpha);
-    surfaces.rightAileron.rotation.x = THREE.MathUtils.lerp(surfaces.rightAileron.rotation.x, -roll * maxAileron, alpha);
-    surfaces.elevatorLeft.rotation.x = THREE.MathUtils.lerp(surfaces.elevatorLeft.rotation.x, -pitch * maxElevator, alpha);
-    surfaces.elevatorRight.rotation.x = THREE.MathUtils.lerp(surfaces.elevatorRight.rotation.x, -pitch * maxElevator, alpha);
-    surfaces.leftRudder.rotation.y = THREE.MathUtils.lerp(surfaces.leftRudder.rotation.y, yaw * maxRudder, alpha);
-    surfaces.rightRudder.rotation.y = THREE.MathUtils.lerp(surfaces.rightRudder.rotation.y, yaw * maxRudder, alpha);
+    surfaces.leftAileron.rotation.x = THREE.MathUtils.lerp(surfaces.leftAileron.rotation.x, roll * motion.maxAileronRadians, alpha);
+    surfaces.rightAileron.rotation.x = THREE.MathUtils.lerp(surfaces.rightAileron.rotation.x, -roll * motion.maxAileronRadians, alpha);
+    surfaces.elevatorLeft.rotation.x = THREE.MathUtils.lerp(surfaces.elevatorLeft.rotation.x, -pitch * motion.maxElevatorRadians, alpha);
+    surfaces.elevatorRight.rotation.x = THREE.MathUtils.lerp(surfaces.elevatorRight.rotation.x, -pitch * motion.maxElevatorRadians, alpha);
+    surfaces.leftRudder.rotation.y = THREE.MathUtils.lerp(surfaces.leftRudder.rotation.y, yaw * motion.maxRudderRadians, alpha);
+    surfaces.rightRudder.rotation.y = THREE.MathUtils.lerp(surfaces.rightRudder.rotation.y, yaw * motion.maxRudderRadians, alpha);
   }
 
   private playerQuaternion(player: PlayerState): THREE.Quaternion {
@@ -384,4 +290,24 @@ function createHingedTriangleSurface(points: THREE.Vector3[], hinge: THREE.Vecto
   group.position.copy(hinge);
   group.add(mesh);
   return group;
+}
+
+function toVector3(tuple: Vec3Tuple): THREE.Vector3 {
+  return new THREE.Vector3(tuple[0], tuple[1], tuple[2]);
+}
+
+function toVector3List(points: readonly Vec3Tuple[]): THREE.Vector3[] {
+  return points.map(toVector3);
+}
+
+function setPosition(object: THREE.Object3D, position: Vec3Tuple): void {
+  object.position.set(position[0], position[1], position[2]);
+}
+
+function setScale(object: THREE.Object3D, scale: Vec3Tuple): void {
+  object.scale.set(scale[0], scale[1], scale[2]);
+}
+
+function scaleTuple(tuple: Vec3Tuple, scalar: number): Vec3Tuple {
+  return [tuple[0] * scalar, tuple[1] * scalar, tuple[2] * scalar];
 }

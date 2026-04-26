@@ -1,13 +1,20 @@
 import * as THREE from "three";
 import type { ProjectileState } from "../../../shared/types.js";
+import type { Vec3Tuple } from "./jetVisualModel.js";
+import { PROJECTILE_VISUAL_MODEL } from "./projectileVisualModel.js";
 
 export class ProjectileRenderer {
   private readonly projectiles = new Map<string, THREE.Object3D>();
-  private readonly bulletTracerGeometry = createRotatedCylinderGeometry(0.34, 0.18, 18, 8);
+  private readonly bulletTracerGeometry = createRotatedCylinderGeometry(
+    PROJECTILE_VISUAL_MODEL.bulletTracer.radiusTop,
+    PROJECTILE_VISUAL_MODEL.bulletTracer.radiusBottom,
+    PROJECTILE_VISUAL_MODEL.bulletTracer.length,
+    PROJECTILE_VISUAL_MODEL.bulletTracer.radialSegments
+  );
   private readonly bulletTracerMaterial = new THREE.MeshBasicMaterial({
-    color: "#fff1a8",
+    color: PROJECTILE_VISUAL_MODEL.bulletTracer.material.color,
     transparent: true,
-    opacity: 0.86,
+    opacity: PROJECTILE_VISUAL_MODEL.bulletTracer.material.opacity,
     depthWrite: false,
     blending: THREE.AdditiveBlending
   });
@@ -85,14 +92,31 @@ export class ProjectileRenderer {
     flare.userData.projectileType = "flare";
 
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(1.35, 10, 8),
-      new THREE.MeshBasicMaterial({ color: "#fffbeb", transparent: true, opacity: 0.88 })
+      new THREE.SphereGeometry(
+        PROJECTILE_VISUAL_MODEL.flare.core.radius,
+        PROJECTILE_VISUAL_MODEL.flare.core.widthSegments,
+        PROJECTILE_VISUAL_MODEL.flare.core.heightSegments
+      ),
+      new THREE.MeshBasicMaterial({
+        color: PROJECTILE_VISUAL_MODEL.flare.core.color,
+        transparent: true,
+        opacity: PROJECTILE_VISUAL_MODEL.flare.core.opacity
+      })
     );
     flare.add(core);
 
     const corona = new THREE.Mesh(
-      new THREE.SphereGeometry(3.25, 10, 8),
-      new THREE.MeshBasicMaterial({ color: "#fb923c", transparent: true, opacity: 0.26, depthWrite: false })
+      new THREE.SphereGeometry(
+        PROJECTILE_VISUAL_MODEL.flare.corona.radius,
+        PROJECTILE_VISUAL_MODEL.flare.corona.widthSegments,
+        PROJECTILE_VISUAL_MODEL.flare.corona.heightSegments
+      ),
+      new THREE.MeshBasicMaterial({
+        color: PROJECTILE_VISUAL_MODEL.flare.corona.color,
+        transparent: true,
+        opacity: PROJECTILE_VISUAL_MODEL.flare.corona.opacity,
+        depthWrite: false
+      })
     );
     flare.add(corona);
     return flare;
@@ -103,48 +127,73 @@ export class ProjectileRenderer {
     missile.userData.projectileType = "missile";
     missile.userData.nextSmokeAt = 0;
 
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: "#d8dde4", roughness: 0.38, metalness: 0.35 });
-    const darkMaterial = new THREE.MeshStandardMaterial({ color: "#202938", roughness: 0.5, metalness: 0.2 });
-    const warningMaterial = new THREE.MeshStandardMaterial({ color: "#b91c1c", roughness: 0.42, metalness: 0.12 });
+    const bodyMaterial = new THREE.MeshStandardMaterial(PROJECTILE_VISUAL_MODEL.missile.body.material);
+    const tailMaterial = new THREE.MeshStandardMaterial(PROJECTILE_VISUAL_MODEL.missile.tail.material);
+    const noseMaterial = new THREE.MeshStandardMaterial(PROJECTILE_VISUAL_MODEL.missile.nose.material);
 
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 11, 18), bodyMaterial);
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        PROJECTILE_VISUAL_MODEL.missile.body.radiusTop,
+        PROJECTILE_VISUAL_MODEL.missile.body.radiusBottom,
+        PROJECTILE_VISUAL_MODEL.missile.body.length,
+        PROJECTILE_VISUAL_MODEL.missile.body.radialSegments
+      ),
+      bodyMaterial
+    );
     body.rotation.x = Math.PI / 2;
     body.castShadow = true;
     missile.add(body);
 
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(1.08, 3.2, 18), warningMaterial);
+    const nose = new THREE.Mesh(
+      new THREE.ConeGeometry(
+        PROJECTILE_VISUAL_MODEL.missile.nose.radius,
+        PROJECTILE_VISUAL_MODEL.missile.nose.length,
+        PROJECTILE_VISUAL_MODEL.missile.nose.radialSegments
+      ),
+      noseMaterial
+    );
     nose.rotation.x = Math.PI / 2;
-    nose.position.z = 7.1;
+    setPosition(nose, PROJECTILE_VISUAL_MODEL.missile.nose.position);
     nose.castShadow = true;
     missile.add(nose);
 
-    const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.14, 1.14, 1.3, 18), darkMaterial);
+    const tail = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        PROJECTILE_VISUAL_MODEL.missile.tail.radiusTop,
+        PROJECTILE_VISUAL_MODEL.missile.tail.radiusBottom,
+        PROJECTILE_VISUAL_MODEL.missile.tail.length,
+        PROJECTILE_VISUAL_MODEL.missile.tail.radialSegments
+      ),
+      tailMaterial
+    );
     tail.rotation.x = Math.PI / 2;
-    tail.position.z = -5.9;
+    setPosition(tail, PROJECTILE_VISUAL_MODEL.missile.tail.position);
     tail.castShadow = true;
     missile.add(tail);
 
-    const finMaterial = new THREE.MeshStandardMaterial({ color: "#111827", roughness: 0.55, metalness: 0.18 });
-    const finGeometries = [
-      { geometry: new THREE.BoxGeometry(0.16, 2.4, 2.9), position: new THREE.Vector3(0, 1.45, -4.6) },
-      { geometry: new THREE.BoxGeometry(0.16, 2.4, 2.9), position: new THREE.Vector3(0, -1.45, -4.6) },
-      { geometry: new THREE.BoxGeometry(2.4, 0.16, 2.9), position: new THREE.Vector3(1.45, 0, -4.6) },
-      { geometry: new THREE.BoxGeometry(2.4, 0.16, 2.9), position: new THREE.Vector3(-1.45, 0, -4.6) }
-    ];
-
-    finGeometries.forEach(({ geometry, position }) => {
-      const fin = new THREE.Mesh(geometry, finMaterial);
-      fin.position.copy(position);
+    const finMaterial = new THREE.MeshStandardMaterial(PROJECTILE_VISUAL_MODEL.missile.finMaterial);
+    PROJECTILE_VISUAL_MODEL.missile.fins.forEach((part) => {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(...part.size), finMaterial);
+      setPosition(fin, part.position);
       fin.castShadow = true;
       missile.add(fin);
     });
 
     const exhaust = new THREE.Mesh(
-      new THREE.ConeGeometry(0.85, 4.6, 14),
-      new THREE.MeshBasicMaterial({ color: "#f97316", transparent: true, opacity: 0.7, depthWrite: false })
+      new THREE.ConeGeometry(
+        PROJECTILE_VISUAL_MODEL.missile.exhaust.radius,
+        PROJECTILE_VISUAL_MODEL.missile.exhaust.length,
+        PROJECTILE_VISUAL_MODEL.missile.exhaust.radialSegments
+      ),
+      new THREE.MeshBasicMaterial({
+        color: PROJECTILE_VISUAL_MODEL.missile.exhaust.material.color,
+        transparent: true,
+        opacity: PROJECTILE_VISUAL_MODEL.missile.exhaust.material.opacity,
+        depthWrite: false
+      })
     );
     exhaust.rotation.x = -Math.PI / 2;
-    exhaust.position.z = -8.2;
+    setPosition(exhaust, PROJECTILE_VISUAL_MODEL.missile.exhaust.position);
     missile.add(exhaust);
     return missile;
   }
@@ -165,4 +214,8 @@ function createRotatedCylinderGeometry(radiusTop: number, radiusBottom: number, 
   const geometry = new THREE.CylinderGeometry(radiusTop, radiusBottom, height, radialSegments);
   geometry.rotateX(Math.PI / 2);
   return geometry;
+}
+
+function setPosition(object: THREE.Object3D, position: Vec3Tuple): void {
+  object.position.set(position[0], position[1], position[2]);
 }

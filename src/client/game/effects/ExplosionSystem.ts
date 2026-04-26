@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { EFFECT_PRESETS } from "./effectPresets.js";
 
 type ExplosionEffect = {
   group: THREE.Group;
@@ -23,18 +24,27 @@ export class ExplosionSystem {
   spawnExplosion(position: WorldPosition, color: string): void {
     const group = new THREE.Group();
     const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+    const preset = EFFECT_PRESETS.explosionShard;
 
-    for (let i = 0; i < 16; i += 1) {
+    for (let i = 0; i < preset.count; i += 1) {
       const shard = new THREE.Mesh(this.explosionShardGeometry, material);
-      shard.scale.setScalar(3 + Math.random() * 5);
-      shard.position.set((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
-      shard.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 90, (Math.random() - 0.2) * 90, (Math.random() - 0.5) * 90);
+      shard.scale.setScalar(preset.scaleBase + Math.random() * preset.scaleSpread);
+      shard.position.set(
+        (Math.random() - 0.5) * preset.positionSpread,
+        (Math.random() - 0.5) * preset.positionSpread,
+        (Math.random() - 0.5) * preset.positionSpread
+      );
+      shard.userData.velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * preset.horizontalVelocitySpread,
+        preset.verticalVelocityBase + Math.random() * preset.verticalVelocitySpread,
+        (Math.random() - 0.5) * preset.horizontalVelocitySpread
+      );
       group.add(shard);
     }
 
     group.position.set(position.x, position.y, position.z);
     this.scene.add(group);
-    this.explosions.push({ group, material, born: performance.now(), life: 900 });
+    this.explosions.push({ group, material, born: performance.now(), life: preset.lifeMs });
   }
 
   spawnHitSpark(position: WorldPosition, color: string): void {
@@ -46,19 +56,28 @@ export class ExplosionSystem {
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
+    const preset = EFFECT_PRESETS.hitSpark;
 
-    for (let i = 0; i < 9; i += 1) {
+    for (let i = 0; i < preset.count; i += 1) {
       const spark = new THREE.Mesh(this.hitSparkGeometry, material);
-      spark.scale.set(1.1, 1.1, 9 + Math.random() * 10);
-      spark.position.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+      spark.scale.set(preset.scaleX, preset.scaleY, preset.scaleZBase + Math.random() * preset.scaleZSpread);
+      spark.position.set(
+        (Math.random() - 0.5) * preset.positionSpread,
+        (Math.random() - 0.5) * preset.positionSpread,
+        (Math.random() - 0.5) * preset.positionSpread
+      );
       spark.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-      spark.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 55, (Math.random() - 0.35) * 55, (Math.random() - 0.5) * 55);
+      spark.userData.velocity = new THREE.Vector3(
+        (Math.random() - 0.5) * preset.horizontalVelocitySpread,
+        preset.verticalVelocityBase + Math.random() * preset.verticalVelocitySpread,
+        (Math.random() - 0.5) * preset.horizontalVelocitySpread
+      );
       group.add(spark);
     }
 
     group.position.set(position.x, position.y, position.z);
     this.scene.add(group);
-    this.explosions.push({ group, material, born: performance.now(), life: 360 });
+    this.explosions.push({ group, material, born: performance.now(), life: preset.lifeMs });
   }
 
   update(now: number, dt: number): void {
