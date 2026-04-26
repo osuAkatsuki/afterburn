@@ -358,6 +358,8 @@ meter {
   --target-y: 50%;
   --lead-x: 50%;
   --lead-y: 50%;
+  --mouse-aim-x: 50%;
+  --mouse-aim-y: 50%;
   position: fixed;
   inset: 0;
   opacity: 0;
@@ -488,6 +490,35 @@ meter {
 
 .aim-overlay[data-lead-visible="true"] .lead-pip {
   opacity: 1;
+}
+
+.mouse-aim {
+  position: fixed;
+  left: var(--mouse-aim-x, 50%);
+  top: var(--mouse-aim-y, 50%);
+  width: 28px;
+  height: 28px;
+  opacity: 0.82;
+  transform: translate(-50%, -50%);
+}
+
+.mouse-aim span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: rgb(139 233 255 / 84%);
+  box-shadow: 0 0 10px rgb(139 233 255 / 28%);
+  transform: translate(-50%, -50%);
+}
+
+.mouse-aim span:first-child {
+  width: 28px;
+  height: 1px;
+}
+
+.mouse-aim span:last-child {
+  width: 1px;
+  height: 28px;
 }
 
 .lock-target {

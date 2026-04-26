@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { MAX_ALTITUDE } from "../../../shared/constants.js";
 import type { PlayerState } from "../../../shared/types.js";
+import type { CameraLookInput } from "../../hooks/useFlightInput.js";
 
 export class ChaseCamera {
   private readonly cameraLookTarget = new THREE.Vector3(0, 180, 0);
@@ -8,7 +9,7 @@ export class ChaseCamera {
 
   constructor(private readonly camera: THREE.PerspectiveCamera) {}
 
-  update(dt: number, local: PlayerState | undefined, localJet: THREE.Group | undefined): void {
+  update(dt: number, local: PlayerState | undefined, localJet: THREE.Group | undefined, look?: CameraLookInput): void {
     const cameraAlpha = 1 - Math.exp(-dt * 16);
     const rotationAlpha = 1 - Math.exp(-dt * 24);
     const lookAlpha = 1 - Math.exp(-dt * 12);
@@ -23,6 +24,9 @@ export class ChaseCamera {
     const desiredOffset = new THREE.Vector3(0, 20, -86).applyQuaternion(localJet.quaternion);
     const desired = localJet.position.clone().add(desiredOffset);
     const desiredRotation = localJet.quaternion.clone().multiply(this.chaseCameraFlip);
+    if (look?.active) {
+      desiredRotation.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, "YXZ")));
+    }
 
     this.camera.position.lerp(desired, cameraAlpha);
     this.camera.quaternion.slerp(desiredRotation, rotationAlpha);
