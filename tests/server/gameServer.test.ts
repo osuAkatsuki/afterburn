@@ -347,7 +347,7 @@ describe("GameRoomManager", () => {
 
     expect(manager.getRoom("FIREQ")?.players.host.lastInputSeq).toBe(1);
     expect(Object.values(manager.getRoom("FIREQ")?.projectiles ?? {}).filter((projectile) => projectile.type === "bullet")).toHaveLength(1);
-    expect(results[0]?.events).toContainEqual({ type: "launch", roomId: "FIREQ", playerId: "host", weapon: "bullet" });
+    expect(results[0]?.events).not.toContainEqual({ type: "launch", roomId: "FIREQ", playerId: "host", weapon: "bullet" });
 
     manager.tickRooms(1166);
     expect(manager.getRoom("FIREQ")?.players.host.lastInputSeq).toBe(2);

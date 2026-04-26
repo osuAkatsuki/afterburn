@@ -118,7 +118,7 @@ export function startGameLoop(io: GameServer, manager: GameRoomManager): NodeJS.
         io.to(room.id).emit("combat:event", event);
       });
 
-      emitSnapshot(io, manager, room, true);
+      emitSnapshot(io, manager, room);
 
       if (ended) {
         const payload: RoundEndedPayload = { room, winnerId: room.winnerId };
@@ -155,10 +155,9 @@ function emitError(socket: GameSocket, message: string): void {
   socket.emit("room:error", payload);
 }
 
-function emitSnapshot(io: GameServer, manager: GameRoomManager, room: RoomState, volatile = false): void {
+function emitSnapshot(io: GameServer, manager: GameRoomManager, room: RoomState): void {
   const payload: StateSnapshotPayload = { tick: manager.getTick(), sentAt: Date.now(), room };
-  const target = volatile ? io.to(room.id).volatile : io.to(room.id);
-  target.emit("state:snapshot", payload);
+  io.to(room.id).emit("state:snapshot", payload);
 }
 
 function readName(payload: unknown): string {
