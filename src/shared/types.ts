@@ -83,6 +83,8 @@ export type ProjectileState = {
   ttl: number;
   damage: number;
   createdAt: number;
+  combatRewindMs?: number;
+  sourceInputSeq?: number;
 };
 
 export type CombatEvent =
@@ -203,6 +205,7 @@ export type NetPongPayload = {
 
 export type NetLatencyPayload = {
   rttMs: number;
+  interpolationDelayMs?: number;
 };
 
 export type ClientToServerEvents = {

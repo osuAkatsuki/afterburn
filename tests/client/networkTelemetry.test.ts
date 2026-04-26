@@ -24,6 +24,7 @@ describe("NetworkTelemetry", () => {
     const snapshotStats = telemetry.recordSnapshot({ tick: 1, sentAt: 1150, room }, 230);
     expect(snapshotStats.transportDelayMs).toBe(30);
     expect(snapshotStats.lastSnapshotAt).toBe(230);
+    expect(snapshotStats.snapshotBytes).toBeGreaterThan(0);
   });
 
   it("computes snapshot rate and receive jitter from server send intervals", () => {

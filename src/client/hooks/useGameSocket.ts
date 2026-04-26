@@ -14,6 +14,7 @@ import type {
 } from "../../shared/types.js";
 import { getClientId, persistClientId } from "../net/ClientSession.js";
 import { createPingPayload, NetworkTelemetry, PING_INTERVAL_MS, type NetworkStats } from "../net/NetworkTelemetry.js";
+import { getSnapshotInterpolationDelayMs } from "../net/SnapshotBuffer.js";
 import type { CombatNotice } from "../utils/combatFeedback.js";
 
 export type ConnectionStatus = "Connecting" | "Online" | "Offline";
@@ -86,7 +87,7 @@ export function useGameSocket() {
     socket.on("net:pong", (payload) => {
       const stats = telemetry.current.recordPong(payload);
       setNetworkStats(stats);
-      socket.emit("net:latency", { rttMs: stats.rttMs });
+      socket.emit("net:latency", { rttMs: stats.rttMs, interpolationDelayMs: getSnapshotInterpolationDelayMs(stats) });
     });
     socket.on("combat:event", (event: CombatEvent) => {
       noticeId.current += 1;

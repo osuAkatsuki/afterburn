@@ -8,6 +8,7 @@ export type NetworkStats = {
   snapshotJitterMs: number;
   lastSnapshotAt: number;
   transportDelayMs: number;
+  snapshotBytes: number;
   reconnects: number;
 };
 
@@ -21,6 +22,7 @@ const INITIAL_NETWORK_STATS: NetworkStats = {
   snapshotJitterMs: 0,
   lastSnapshotAt: 0,
   transportDelayMs: 0,
+  snapshotBytes: 0,
   reconnects: 0
 };
 
@@ -53,12 +55,14 @@ export class NetworkTelemetry {
     this.previousSnapshotSentAt = payload.sentAt;
     const sentAtLocal = toClientTimeline(payload.sentAt, receivedAt, this.serverClockOffsetMs);
     const transportDelayMs = Math.max(0, receivedAt - sentAtLocal);
+    const snapshotBytes = payload.tick % 15 === 0 || this.stats.snapshotBytes <= 0 ? estimateSnapshotBytes(payload) : this.stats.snapshotBytes;
 
     if (previous <= 0) {
       this.stats = {
         ...this.stats,
         lastSnapshotAt: receivedAt,
-        transportDelayMs
+        transportDelayMs,
+        snapshotBytes
       };
       return this.getStats();
     }
@@ -74,7 +78,8 @@ export class NetworkTelemetry {
       snapshotHz: smoothedInterval > 0 ? 1000 / smoothedInterval : 0,
       snapshotJitterMs: this.stats.snapshotJitterMs * 0.85 + jitter * 0.15,
       lastSnapshotAt: receivedAt,
-      transportDelayMs: this.stats.transportDelayMs > 0 ? this.stats.transportDelayMs * 0.85 + transportDelayMs * 0.15 : transportDelayMs
+      transportDelayMs: this.stats.transportDelayMs > 0 ? this.stats.transportDelayMs * 0.85 + transportDelayMs * 0.15 : transportDelayMs,
+      snapshotBytes: this.stats.snapshotBytes > 0 ? this.stats.snapshotBytes * 0.85 + snapshotBytes * 0.15 : snapshotBytes
     };
     return this.getStats();
   }
@@ -111,4 +116,12 @@ function toClientTimeline(serverTime: number, fallbackClientTime: number, server
   }
 
   return serverTime - serverClockOffsetMs;
+}
+
+function estimateSnapshotBytes(payload: StateSnapshotPayload): number {
+  try {
+    return JSON.stringify(payload).length;
+  } catch {
+    return 0;
+  }
 }
