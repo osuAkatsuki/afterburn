@@ -1,8 +1,10 @@
 import {
   ARENA_RADIUS,
+  BULLET_SPEED,
   GUN_CONVERGENCE_DISTANCE,
   MAX_ALTITUDE,
   MISSILE_LOCK_RANGE,
+  MISSILE_SEEKER_GIMBAL_DOT,
   OCEAN_LEVEL
 } from "../shared/constants.js";
 import {
@@ -33,6 +35,13 @@ const BOT_BREAKAWAY_FORWARD = 560;
 const BOT_BREAKAWAY_SIDE = 520;
 const BOT_BREAKAWAY_CLIMB = 150;
 const BOT_OFFSET_PURSUIT_SIDE = 260;
+const BOT_GUN_RANGE = GUN_CONVERGENCE_DISTANCE * 0.95;
+const BOT_GUN_ALIGNMENT = 0.975;
+const BOT_MISSILE_ALIGNMENT = 0.94;
+const BOT_DEFENSIVE_RANGE = 920;
+const BOT_EVADE_SIDE = 720;
+const BOT_EVADE_FORWARD = 180;
+const BOT_EVADE_CLIMB = 180;
 const BOT_FLARE_REACTION_MIN_MS = 420;
 const BOT_FLARE_REACTION_SPREAD_MS = 680;
 const BOT_FLARE_DEPLOY_MIN_RANGE = 220;
@@ -53,29 +62,46 @@ export function createBotInput(room: RoomState, bot: PlayerState, now: number): 
 
   const target = findBotTarget(room, bot);
   const recoveryPoint = getRecoveryPoint(bot);
-  const plan = target ? getEngagementPlan(bot, target) : undefined;
-  const aimPoint = recoveryPoint ?? plan?.point;
+  const threatMissile = findIncomingMissile(room, bot);
+  const defensivePoint = threatMissile && !recoveryPoint ? getMissileEvasionPoint(bot, threatMissile) : undefined;
+  const plan = target && !defensivePoint ? getEngagementPlan(bot, target) : undefined;
+  const aimPoint = recoveryPoint ?? defensivePoint ?? plan?.point;
   const steering = aimPoint ? steerToward(bot, aimPoint) : patrol(bot);
   const targetRange = target ? distance(bot.position, target.position) : Number.POSITIVE_INFINITY;
   const targetAhead = target ? steering.ahead : -1;
   const breakingAway = plan?.mode === "breakaway" && !recoveryPoint;
+  const defending = Boolean(defensivePoint);
 
   input.pitch = steering.pitch;
   input.yaw = steering.yaw;
   input.roll = steering.roll;
-  input.afterburner = Boolean(recoveryPoint || breakingAway || targetRange > 900);
-  input.fireGun = Boolean(!breakingAway && target && targetRange < GUN_CONVERGENCE_DISTANCE * 0.72 && targetAhead > 0.985);
-  input.fireMissile = Boolean(!breakingAway && target && bot.missileLockAcquired && targetRange < MISSILE_LOCK_RANGE && targetAhead > 0.99);
+  input.afterburner = Boolean(recoveryPoint || breakingAway || (!defending && targetRange > 1200));
+  input.aimDirection = target ? getSeekerAimDirection(bot, target) : undefined;
+  input.fireGun = Boolean(!breakingAway && !defending && target && targetRange < BOT_GUN_RANGE && targetAhead > BOT_GUN_ALIGNMENT);
+  input.fireMissile = Boolean(!breakingAway && !defending && target && bot.missileLockAcquired && targetRange < MISSILE_LOCK_RANGE && targetAhead > BOT_MISSILE_ALIGNMENT);
   input.fireFlare = shouldDeployFlare(room, bot, now);
 
   return input;
 }
 
 function findBotTarget(room: RoomState, bot: PlayerState): PlayerState | undefined {
+  const forward = botForward(bot);
+
   return Object.values(room.players)
     .filter((player) => player.id !== bot.id && player.status === "alive" && !isPlayerSpawnProtected(player, room.now))
-    .map((player) => ({ player, range: distance(bot.position, player.position) }))
-    .sort((a, b) => a.range - b.range)[0]?.player;
+    .map((player) => {
+      const range = distance(bot.position, player.position);
+      const direction = normalize(subtract(player.position, bot.position));
+      const alignment = dot(forward, direction);
+      const damagedBonus = clamp((100 - player.health) / 100, 0, 1) * 0.55;
+      const leaderBonus = clamp(player.score, 0, 12) * 0.08;
+      const rangeScore = 900 / Math.max(260, range);
+      return {
+        player,
+        score: rangeScore + alignment * 0.55 + damagedBonus + leaderBonus
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.player.id.localeCompare(b.player.id))[0]?.player;
 }
 
 function getRecoveryPoint(bot: PlayerState): Vec3 | undefined {
@@ -110,12 +136,13 @@ function getRecoveryPoint(bot: PlayerState): Vec3 | undefined {
   return undefined;
 }
 
-function getAimPoint(target: PlayerState | undefined): Vec3 | undefined {
+function getAimPoint(bot: PlayerState, target: PlayerState | undefined): Vec3 | undefined {
   if (!target) {
     return undefined;
   }
 
-  return add(target.position, scale(target.velocity, TARGET_LEAD_SECONDS));
+  const leadSeconds = clamp(distance(bot.position, target.position) / BULLET_SPEED, 0.18, TARGET_LEAD_SECONDS);
+  return add(target.position, scale(target.velocity, leadSeconds));
 }
 
 function getEngagementPlan(bot: PlayerState, target: PlayerState): BotPlan {
@@ -128,7 +155,7 @@ function getEngagementPlan(bot: PlayerState, target: PlayerState): BotPlan {
     return { point: getOffsetPursuitPoint(bot, target), mode: "offset" };
   }
 
-  return { point: getAimPoint(target) ?? target.position, mode: "pursuit" };
+  return { point: getAimPoint(bot, target) ?? target.position, mode: "pursuit" };
 }
 
 function isCollisionCourse(bot: PlayerState, target: PlayerState, range: number): boolean {
@@ -159,7 +186,7 @@ function getOffsetPursuitPoint(bot: PlayerState, target: PlayerState): Vec3 {
   const orientation = bot.orientation ?? quaternionFromRotation(bot.rotation);
   const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
   const side = botBreakSide(bot, target);
-  return add(add(getAimPoint(target) ?? target.position, scale(right, side * BOT_OFFSET_PURSUIT_SIDE)), {
+  return add(add(getAimPoint(bot, target) ?? target.position, scale(right, side * BOT_OFFSET_PURSUIT_SIDE)), {
     x: 0,
     y: 60,
     z: 0
@@ -180,6 +207,36 @@ function patrol(bot: PlayerState): { pitch: number; yaw: number; roll: number; a
     roll: clamp(wrapAngle(desiredRoll - bot.rotation.roll) * 1.85, -1, 1),
     ahead: 1
   };
+}
+
+function getSeekerAimDirection(bot: PlayerState, target: PlayerState): Vec3 | undefined {
+  const direction = normalize(subtract(target.position, bot.position));
+  return dot(botForward(bot), direction) >= MISSILE_SEEKER_GIMBAL_DOT ? direction : undefined;
+}
+
+function findIncomingMissile(room: RoomState, bot: PlayerState): ProjectileState | undefined {
+  return Object.values(room.projectiles)
+    .filter((projectile) => projectile.type === "missile" && projectile.targetType === "player" && projectile.targetId === bot.id)
+    .map((projectile) => ({ projectile, range: projectileClosingRange(projectile, bot) }))
+    .filter(({ range }) => range < BOT_DEFENSIVE_RANGE)
+    .sort((a, b) => a.range - b.range)[0]?.projectile;
+}
+
+function getMissileEvasionPoint(bot: PlayerState, missile: ProjectileState): Vec3 {
+  const orientation = bot.orientation ?? quaternionFromRotation(bot.rotation);
+  const forward = normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, orientation));
+  const right = normalize(applyQuaternion({ x: 1, y: 0, z: 0 }, orientation));
+  const missileForward = length(missile.velocity) > 0.001 ? normalize(missile.velocity) : normalize(subtract(bot.position, missile.position));
+  const horizontalMissileRight = normalize({ x: -missileForward.z, y: 0, z: missileForward.x });
+  const fallbackRight = length(horizontalMissileRight) > 0.001 ? horizontalMissileRight : right;
+  const side = deterministicUnit(bot.id, missile.id, "evade") >= 0.5 ? 1 : -1;
+  const lateral = dot(fallbackRight, right) >= 0 ? fallbackRight : scale(fallbackRight, -1);
+
+  return add(add(add(bot.position, scale(lateral, side * BOT_EVADE_SIDE)), scale(forward, BOT_EVADE_FORWARD)), {
+    x: 0,
+    y: bot.position.y < SAFE_ALTITUDE + 160 ? BOT_EVADE_CLIMB : BOT_EVADE_CLIMB * 0.35,
+    z: 0
+  });
 }
 
 function steerToward(bot: PlayerState, point: Vec3): { pitch: number; yaw: number; roll: number; ahead: number } {

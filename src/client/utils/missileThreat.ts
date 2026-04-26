@@ -1,8 +1,10 @@
+import { MISSILE_PROXIMITY_RADIUS, PLAYER_HIT_RADIUS } from "../../shared/constants.js";
 import { applyQuaternion, distance, dot, forwardVector, normalize, quaternionFromRotation, subtract } from "../../shared/math.js";
 import type { PlayerState, RoomState } from "../../shared/types.js";
 
 export type IncomingMissileCue = {
   range: number;
+  impactSeconds?: number;
   bearingRadians: number;
   clockLabel: string;
 };
@@ -31,9 +33,22 @@ export function getIncomingMissileCue(room: RoomState | undefined, localPlayer: 
 
   return {
     range: missile.range,
+    impactSeconds: estimateImpactSeconds(localPlayer, missile.projectile, missile.range),
     bearingRadians,
     clockLabel: clockLabelForBearing(bearingRadians)
   };
+}
+
+function estimateImpactSeconds(localPlayer: PlayerState, missile: RoomState["projectiles"][string], range: number): number | undefined {
+  const toPlayer = normalize(subtract(localPlayer.position, missile.position));
+  const relativeVelocity = subtract(missile.velocity, localPlayer.velocity);
+  const closingSpeed = dot(relativeVelocity, toPlayer);
+  if (closingSpeed <= 1) {
+    return undefined;
+  }
+
+  const fuseRange = PLAYER_HIT_RADIUS + MISSILE_PROXIMITY_RADIUS;
+  return Math.max(0, (range - fuseRange) / closingSpeed);
 }
 
 function clockLabelForBearing(bearingRadians: number): string {

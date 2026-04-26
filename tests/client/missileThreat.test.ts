@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MISSILE_DAMAGE, MISSILE_SPEED } from "../../src/shared/constants.js";
+import { MAX_SPEED, MISSILE_DAMAGE, MISSILE_SPEED } from "../../src/shared/constants.js";
 import { addPlayerToRoom, createPlayer, createRoomState, startRound } from "../../src/shared/simulation.js";
-import { quaternionFromRotation } from "../../src/shared/math.js";
+import { forwardVector, normalize, quaternionFromRotation, scale, subtract } from "../../src/shared/math.js";
 import type { PlayerState, ProjectileState } from "../../src/shared/types.js";
 import { getIncomingMissileCue } from "../../src/client/utils/missileThreat.js";
 
@@ -19,9 +19,11 @@ function testRoom() {
 function setRotation(player: PlayerState, rotation: PlayerState["rotation"]): void {
   player.rotation = rotation;
   player.orientation = quaternionFromRotation(rotation);
+  player.velocity = scale(forwardVector(rotation), MAX_SPEED);
 }
 
 function addMissile(room: ReturnType<typeof createRoomState>, id: string, position: ProjectileState["position"]): void {
+  const localPosition = room.players.p1.position;
   room.projectiles[id] = {
     id,
     type: "missile",
@@ -29,7 +31,7 @@ function addMissile(room: ReturnType<typeof createRoomState>, id: string, positi
     targetId: "p1",
     targetType: "player",
     position,
-    velocity: { x: 0, y: 0, z: -MISSILE_SPEED },
+    velocity: scale(normalize(subtract(localPosition, position)), MISSILE_SPEED),
     ttl: 4,
     damage: MISSILE_DAMAGE,
     createdAt: 1000
@@ -46,6 +48,7 @@ describe("missile threat cues", () => {
 
     expect(cue?.clockLabel).toBe("3 O'CLOCK");
     expect(cue?.range).toBeCloseTo(240);
+    expect(cue?.impactSeconds).toBeCloseTo(0.27, 2);
     expect(cue?.bearingRadians).toBeCloseTo(Math.PI / 2);
   });
 

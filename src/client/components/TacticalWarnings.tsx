@@ -9,7 +9,7 @@ type TacticalWarningsProps = {
 
 type TacticalWarning = {
   text: string;
-  tone?: "safe";
+  tone?: "safe" | "caution";
 };
 
 export function TacticalWarnings({ room, localPlayer }: TacticalWarningsProps) {
@@ -32,7 +32,11 @@ export function TacticalWarnings({ room, localPlayer }: TacticalWarningsProps) {
 
   const warnings: TacticalWarning[] = [
     outOfBoundsSeconds > 0 ? { text: `RETURN TO PLAYFIELD IN ${outOfBoundsSeconds}s` } : undefined,
-    incomingMissile ? { text: "MISSILE INBOUND" } : lockedByEnemy ? { text: "MISSILE LOCKED ON YOU" } : undefined,
+    incomingMissile
+      ? { text: `MISSILE INBOUND ${formatImpactSeconds(incomingMissileCue?.impactSeconds)}` }
+      : lockedByEnemy
+        ? { text: "MISSILE LOCKED ON YOU", tone: "caution" }
+        : undefined,
     protectionSeconds > 0 ? { text: `SPAWN PROTECTED ${protectionSeconds}s`, tone: "safe" } : undefined
   ].filter((warning): warning is TacticalWarning => Boolean(warning));
 
@@ -45,7 +49,7 @@ export function TacticalWarnings({ room, localPlayer }: TacticalWarningsProps) {
       {incomingMissileCue ? (
         <div className="missile-direction" style={{ "--missile-bearing": `${incomingMissileCue.bearingRadians}rad` } as CSSProperties}>
           <i aria-hidden="true" />
-          <span>MSL {incomingMissileCue.clockLabel}</span>
+          <span>MSL {incomingMissileCue.clockLabel} {formatImpactSeconds(incomingMissileCue.impactSeconds)}</span>
         </div>
       ) : null}
       {warnings.map((warning) => (
@@ -55,4 +59,8 @@ export function TacticalWarnings({ room, localPlayer }: TacticalWarningsProps) {
       ))}
     </section>
   );
+}
+
+function formatImpactSeconds(seconds: number | undefined): string {
+  return Number.isFinite(seconds) && seconds !== undefined ? `${seconds.toFixed(1)}s` : "--";
 }

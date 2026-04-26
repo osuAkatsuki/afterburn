@@ -99,10 +99,10 @@ describe("shared simulation", () => {
     expect(AFTERBURNER_SPEED).toBe(SPEED_UNIT * 2);
     expect(BULLET_SPEED).toBe(SPEED_UNIT * 12);
     expect(BULLET_TTL_SECONDS).toBeCloseTo(0.85 * 3);
-    expect(MISSILE_SPEED).toBe(SPEED_UNIT * 8);
+    expect(MISSILE_SPEED).toBe(SPEED_UNIT * 6);
     expect(MISSILE_NAVIGATION_CONSTANT).toBeGreaterThanOrEqual(3);
     expect(MISSILE_NAVIGATION_CONSTANT).toBeLessThanOrEqual(5);
-    expect(MISSILE_TTL_SECONDS).toBeGreaterThan(8);
+    expect(MISSILE_TTL_SECONDS).toBeGreaterThan(9);
     expect(MISSILE_LOCK_RANGE).toBeCloseTo(MISSILE_SPEED * MISSILE_TTL_SECONDS * 0.9);
     expect(FLARE_DECOY_RANGE).toBeGreaterThan(400);
     expect(FLARE_COOLDOWN_SECONDS).toBeLessThan(0.25);
