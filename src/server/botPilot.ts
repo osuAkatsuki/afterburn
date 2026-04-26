@@ -18,7 +18,7 @@ import {
   subtract,
   wrapAngle
 } from "../shared/math.js";
-import { neutralInput } from "../shared/simulation.js";
+import { isPlayerSpawnProtected, neutralInput } from "../shared/simulation.js";
 import type { InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "../shared/types.js";
 
 const TARGET_LEAD_SECONDS = 0.75;
@@ -55,7 +55,7 @@ export function createBotInput(room: RoomState, bot: PlayerState, now: number): 
 
 function findBotTarget(room: RoomState, bot: PlayerState): PlayerState | undefined {
   return Object.values(room.players)
-    .filter((player) => player.id !== bot.id && player.status === "alive")
+    .filter((player) => player.id !== bot.id && player.status === "alive" && !isPlayerSpawnProtected(player, room.now))
     .map((player) => ({ player, range: distance(bot.position, player.position) }))
     .sort((a, b) => a.range - b.range)[0]?.player;
 }

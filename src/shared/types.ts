@@ -62,6 +62,8 @@ export type PlayerState = {
   missileLockAcquired: boolean;
   outOfBoundsUntil?: number;
   outOfBoundsRemainingMs: number;
+  spawnProtectionUntil?: number;
+  spawnProtectionRemainingMs: number;
   respawnAt: number;
   lastInputSeq: number;
   input: InputFrame;

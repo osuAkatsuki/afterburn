@@ -20,6 +20,11 @@ import {
   PLAYER_HEALTH,
   PLAYER_HIT_RADIUS,
   RESPAWN_MS,
+  SPAWN_ALTITUDE_MAX,
+  SPAWN_ALTITUDE_MIN,
+  SPAWN_PROTECTION_MS,
+  SPAWN_RING_MAX,
+  SPAWN_RING_MIN,
   SPEED_UNIT,
   TICK_RATE,
   TERRAIN_COLLISION_MARGIN,
@@ -30,11 +35,13 @@ import {
   applyPlayerFlightStep,
   createPlayer,
   createRoomState,
+  isPlayerSpawnProtected,
   setPlayerInput,
+  spawnForIndex,
   startRound,
   stepRoom
 } from "../../src/shared/simulation.js";
-import { dot, forwardVector, length, normalize, quaternionFromRotation, scale } from "../../src/shared/math.js";
+import { distance, dot, forwardVector, length, normalize, quaternionFromRotation, scale } from "../../src/shared/math.js";
 import { isTerrainImpact, terrainHeightAt } from "../../src/shared/terrain.js";
 import type { PlayerState, ProjectileState, Rotation } from "../../src/shared/types.js";
 
@@ -43,7 +50,15 @@ function twoPlayerRoom(now = 1000) {
   addPlayerToRoom(room, createPlayer("p1", "Maverick", 0, now));
   addPlayerToRoom(room, createPlayer("p2", "Viper", 1, now));
   startRound(room, now);
+  clearSpawnProtectionForTest(room);
   return room;
+}
+
+function clearSpawnProtectionForTest(room: ReturnType<typeof createRoomState>) {
+  Object.values(room.players).forEach((player) => {
+    player.spawnProtectionUntil = undefined;
+    player.spawnProtectionRemainingMs = 0;
+  });
 }
 
 function holdLock(room: ReturnType<typeof twoPlayerRoom>, attackerId = "p1") {
@@ -69,6 +84,33 @@ describe("shared simulation", () => {
     expect(BULLET_SPEED).toBe(SPEED_UNIT * 3);
     expect(BULLET_TTL_SECONDS).toBeCloseTo(0.85 * 3);
     expect(MISSILE_SPEED).toBe(SPEED_UNIT * 4);
+  });
+
+  it("spawns aircraft on a wider staggered ring facing roughly inward", () => {
+    for (let index = 0; index < 6; index += 1) {
+      const spawn = spawnForIndex(index);
+      const horizontalRange = Math.hypot(spawn.position.x, spawn.position.z);
+      const towardCenter = normalize({ x: -spawn.position.x, y: 0, z: -spawn.position.z });
+      const forward = forwardVector(spawn.rotation);
+      const terrain = terrainHeightAt(spawn.position.x, spawn.position.z);
+
+      expect(horizontalRange).toBeGreaterThanOrEqual(SPAWN_RING_MIN);
+      expect(horizontalRange).toBeLessThanOrEqual(SPAWN_RING_MAX);
+      expect(spawn.position.y).toBeGreaterThanOrEqual(SPAWN_ALTITUDE_MIN);
+      expect(spawn.position.y).toBeLessThanOrEqual(SPAWN_ALTITUDE_MAX);
+      expect(dot(normalize({ x: forward.x, y: 0, z: forward.z }), towardCenter)).toBeGreaterThan(0.94);
+      expect(terrain.kind).not.toBe("mountain");
+    }
+  });
+
+  it("starts rounds with brief spawn protection", () => {
+    const room = createRoomState("PROT0", "p1", 1000);
+    addPlayerToRoom(room, createPlayer("p1", "Maverick", 0, 1000));
+    startRound(room, 1000);
+
+    expect(room.players.p1.spawnProtectionRemainingMs).toBe(SPAWN_PROTECTION_MS);
+    expect(isPlayerSpawnProtected(room.players.p1, 1000 + SPAWN_PROTECTION_MS - 1)).toBe(true);
+    expect(isPlayerSpawnProtected(room.players.p1, 1000 + SPAWN_PROTECTION_MS)).toBe(false);
   });
 
   it("moves aircraft with sanitized input and warns outside the soft ceiling", () => {
@@ -301,6 +343,68 @@ describe("shared simulation", () => {
     expect(second.status).toBe("alive");
   });
 
+  it("prevents protected spawns from causing or receiving immediate collision kills", () => {
+    const room = twoPlayerRoom();
+    const first = room.players.p1;
+    const second = room.players.p2;
+    first.position = { x: 0, y: 260, z: 0 };
+    second.position = { x: AIRCRAFT_COLLISION_RADIUS, y: 260, z: 0 };
+    first.spawnProtectionUntil = 4000;
+    first.spawnProtectionRemainingMs = 3000;
+
+    stepRoom(room, 0, 1050);
+
+    expect(first.status).toBe("alive");
+    expect(second.status).toBe("alive");
+
+    first.spawnProtectionUntil = 1051;
+    const events = stepRoom(room, 0, 4050);
+
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: first.id, reason: "collision" });
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: second.id, reason: "collision" });
+  });
+
+  it("disables protected spawn gun and missile launches", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    attacker.spawnProtectionUntil = 4000;
+    attacker.spawnProtectionRemainingMs = 3000;
+    attacker.missileCooldown = 0;
+
+    setPlayerInput(attacker, { seq: 1, fireGun: true, fireMissile: true });
+    const events = stepRoom(room, 0.1, 1050);
+
+    expect(Object.values(room.projectiles).filter((projectile) => projectile.type === "bullet" || projectile.type === "missile")).toHaveLength(0);
+    expect(events.some((event) => event.type === "launch" && (event.weapon === "bullet" || event.weapon === "missile"))).toBe(false);
+  });
+
+  it("ignores weapon hits against protected spawns", () => {
+    const room = twoPlayerRoom();
+    const victim = room.players.p2;
+    victim.position = { x: 0, y: 260, z: 0 };
+    victim.health = 12;
+    victim.spawnProtectionUntil = 4000;
+    victim.spawnProtectionRemainingMs = 3000;
+
+    const bullet: ProjectileState = {
+      id: "protected-bullet",
+      type: "bullet",
+      ownerId: "p1",
+      position: { ...victim.position },
+      velocity: { x: 0, y: 0, z: 0 },
+      ttl: 1,
+      damage: 12,
+      createdAt: 1000
+    };
+    room.projectiles[bullet.id] = bullet;
+
+    const events = stepRoom(room, 0, 1050);
+
+    expect(victim.status).toBe("alive");
+    expect(victim.health).toBe(12);
+    expect(events.some((event) => event.type === "hit" || event.type === "kill")).toBe(false);
+  });
+
   it("applies bullet hits, awards kills, and respawns players", () => {
     const room = twoPlayerRoom();
     const attacker = room.players.p1;
@@ -323,6 +427,24 @@ describe("shared simulation", () => {
     expect(respawnEvents.some((event) => event.type === "respawn")).toBe(true);
     expect(victim.status).toBe("alive");
     expect(victim.health).toBe(PLAYER_HEALTH);
+  });
+
+  it("respawns away from nearby enemies when another safe spawn is available", () => {
+    const room = twoPlayerRoom();
+    const respawning = room.players.p1;
+    const enemy = room.players.p2;
+    const campedSpawn = spawnForIndex(0);
+
+    enemy.position = { ...campedSpawn.position };
+    respawning.status = "dead";
+    respawning.respawnAt = 2000;
+
+    const events = stepRoom(room, 0, 2000);
+
+    expect(events).toContainEqual({ type: "respawn", roomId: room.id, playerId: respawning.id });
+    expect(respawning.status).toBe("alive");
+    expect(distance(respawning.position, enemy.position)).toBeGreaterThan(650);
+    expect(respawning.spawnProtectionRemainingMs).toBe(SPAWN_PROTECTION_MS);
   });
 
   it("keeps bullet hit radius close to the tracer width", () => {

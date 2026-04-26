@@ -10,6 +10,12 @@ export const OUT_OF_BOUNDS_GRACE_MS = 10000;
 export const DISCONNECT_GRACE_MS = 15000;
 export const OCEAN_LEVEL = 0;
 export const TERRAIN_COLLISION_MARGIN = 2;
+export const SPAWN_RING_MIN = 900;
+export const SPAWN_RING_MAX = 1300;
+export const SPAWN_ALTITUDE_MIN = 220;
+export const SPAWN_ALTITUDE_MAX = 520;
+export const SPAWN_TERRAIN_CLEARANCE = 140;
+export const SPAWN_PROTECTION_MS = 3000;
 
 export type TerrainPeak = {
   x: number;

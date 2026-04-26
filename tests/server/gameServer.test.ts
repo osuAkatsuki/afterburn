@@ -322,6 +322,11 @@ describe("GameRoomManager", () => {
     manager.createRoom("host", "Host", 1000);
     manager.setReady("host", true, 1050);
     manager.startRoom("host", 1100);
+    const host = manager.getRoom("FIREQ")?.players.host;
+    if (host) {
+      host.spawnProtectionUntil = undefined;
+      host.spawnProtectionRemainingMs = 0;
+    }
 
     manager.setInput("host", { seq: 1, fireGun: true });
     manager.setInput("host", { seq: 2, fireGun: false });

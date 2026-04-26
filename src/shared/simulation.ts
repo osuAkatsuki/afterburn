@@ -42,6 +42,12 @@ import {
   RESPAWN_MS,
   ROLL_RATE,
   ROUND_MS,
+  SPAWN_ALTITUDE_MAX,
+  SPAWN_ALTITUDE_MIN,
+  SPAWN_PROTECTION_MS,
+  SPAWN_RING_MAX,
+  SPAWN_RING_MIN,
+  SPAWN_TERRAIN_CLEARANCE,
   TURN_RATE,
   OUT_OF_BOUNDS_GRACE_MS,
   STALL_SPEED,
@@ -68,10 +74,12 @@ import {
   scale,
   subtract
 } from "./math.js";
-import { isOutsidePlayArea, isTerrainImpact } from "./terrain.js";
+import { isOutsidePlayArea, isTerrainImpact, terrainHeightAt } from "./terrain.js";
 import type { CombatEvent, InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "./types.js";
 
 const palette = ["#ef4444", "#38bdf8", "#facc15", "#a78bfa", "#34d399", "#fb7185"];
+const SPAWN_SLOT_COUNT = 6;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 type ProjectileImpactReason = "terrain" | "player" | "flare";
 
 export const neutralInput = (timestamp = 0): InputFrame => ({
@@ -144,6 +152,7 @@ export function createPlayer(id: string, name: string, index = 0, now = Date.now
     missileLockProgress: 0,
     missileLockAcquired: false,
     outOfBoundsRemainingMs: 0,
+    spawnProtectionRemainingMs: 0,
     respawnAt: 0,
     lastInputSeq: 0,
     input: neutralInput(now)
@@ -193,6 +202,7 @@ export function resetPlayerForRound(player: PlayerState, index: number, now: num
   player.flareCooldown = 0;
   clearMissileLock(player);
   clearOutOfBoundsWarning(player);
+  activateSpawnProtection(player, now);
   player.respawnAt = 0;
   player.input = neutralInput(now);
   player.lastInputSeq = 0;
@@ -249,24 +259,76 @@ export function getWinnerId(room: RoomState): string | undefined {
 }
 
 export function spawnForIndex(index: number): { position: Vec3; rotation: { pitch: number; yaw: number; roll: number } } {
-  const angle = (Math.PI * 2 * index) / 6;
-  const radius = 360;
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const spawn = spawnCandidate(index, attempt);
+    if (isSpawnTerrainSafe(spawn.position)) {
+      return spawn;
+    }
+  }
+
+  return spawnCandidate(index, 0);
+}
+
+function selectSpawnForPlayer(room: RoomState, playerId: string, index: number): { position: Vec3; rotation: { pitch: number; yaw: number; roll: number } } {
+  const enemies = Object.values(room.players).filter((player) => player.id !== playerId && player.status === "alive");
+  if (enemies.length === 0) {
+    return spawnForIndex(index);
+  }
+
+  let best = spawnForIndex(index);
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  for (let attempt = 0; attempt < 36; attempt += 1) {
+    const spawn = spawnCandidate(index, attempt);
+    const terrain = terrainHeightAt(spawn.position.x, spawn.position.z);
+    const terrainPenalty = isSpawnTerrainSafe(spawn.position) ? 0 : -5000;
+    const enemyClearance = enemies.reduce(
+      (closest, enemy) => Math.min(closest, distance(spawn.position, enemy.position)),
+      Number.POSITIVE_INFINITY
+    );
+    const centerBias = -Math.abs(Math.hypot(spawn.position.x, spawn.position.z) - (SPAWN_RING_MIN + SPAWN_RING_MAX) / 2) * 0.08;
+    const mountainPenalty = terrain.kind === "mountain" ? -5000 : 0;
+    const score = enemyClearance + terrainPenalty + mountainPenalty + centerBias;
+
+    if (score > bestScore) {
+      best = spawn;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+function spawnCandidate(index: number, attempt: number): { position: Vec3; rotation: { pitch: number; yaw: number; roll: number } } {
+  const angle = ((Math.PI * 2 * (index % SPAWN_SLOT_COUNT)) / SPAWN_SLOT_COUNT + attempt * GOLDEN_ANGLE) % (Math.PI * 2);
+  const ringRange = SPAWN_RING_MAX - SPAWN_RING_MIN;
+  const altitudeRange = SPAWN_ALTITUDE_MAX - SPAWN_ALTITUDE_MIN;
+  const radius = SPAWN_RING_MIN + ((((index + attempt * 7) * 37) % 101) / 100) * ringRange;
+  const altitude = SPAWN_ALTITUDE_MIN + ((((index + attempt * 5) * 29) % 101) / 100) * altitudeRange;
+  const inwardHeading = Math.atan2(-Math.sin(angle), -Math.cos(angle));
+  const headingOffset = (index + attempt) % 2 === 0 ? 0.24 : -0.24;
 
   return {
     position: {
       x: Math.sin(angle) * radius,
-      y: 190 + (index % 3) * 45,
+      y: altitude,
       z: Math.cos(angle) * radius
     },
     rotation: {
       pitch: 0,
-      yaw: angle + Math.PI,
+      yaw: inwardHeading + headingOffset,
       roll: 0
     }
   };
 }
 
+function isSpawnTerrainSafe(position: Vec3): boolean {
+  const terrain = terrainHeightAt(position.x, position.z);
+  return terrain.kind !== "mountain" && position.y >= terrain.height + SPAWN_TERRAIN_CLEARANCE;
+}
+
 function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: number, events: CombatEvent[]): void {
+  updateSpawnProtection(player, now);
   player.gunCooldown = Math.max(0, player.gunCooldown - dt);
   player.missileCooldown = Math.max(0, player.missileCooldown - dt);
   player.flareCooldown = Math.max(0, player.flareCooldown - dt);
@@ -278,13 +340,15 @@ function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: numbe
     return;
   }
 
-  updateMissileLock(room, player, dt);
+  updateMissileLock(room, player, dt, now);
 
-  if (player.input.fireGun && player.gunCooldown <= 0 && player.gunHeat < GUN_HEAT_MAX) {
+  const weaponsEnabled = !isPlayerSpawnProtected(player, now);
+
+  if (weaponsEnabled && player.input.fireGun && player.gunCooldown <= 0 && player.gunHeat < GUN_HEAT_MAX) {
     fireGun(room, player, now, events);
   }
 
-  if (player.input.fireMissile && player.missileCooldown <= 0 && player.missilesRemaining > 0) {
+  if (weaponsEnabled && player.input.fireMissile && player.missileCooldown <= 0 && player.missilesRemaining > 0) {
     fireMissile(room, player, now, events);
   }
 
@@ -397,6 +461,7 @@ function crashPlayer(
   player.velocity = { x: 0, y: 0, z: 0 };
   clearMissileLock(player);
   clearOutOfBoundsWarning(player);
+  clearSpawnProtection(player);
   events.push({ type: "crash", roomId: room.id, playerId: player.id, reason });
 }
 
@@ -415,6 +480,10 @@ function resolvePlayerCollisions(room: RoomState, now: number, events: CombatEve
         continue;
       }
 
+      if (isPlayerSpawnProtected(player, now) || isPlayerSpawnProtected(other, now)) {
+        continue;
+      }
+
       if (distance(player.position, other.position) <= AIRCRAFT_COLLISION_RADIUS * 2) {
         crashPlayer(room, player, "collision", now, events);
         crashPlayer(room, other, "collision", now, events);
@@ -426,6 +495,29 @@ function resolvePlayerCollisions(room: RoomState, now: number, events: CombatEve
 function clearOutOfBoundsWarning(player: PlayerState): void {
   player.outOfBoundsUntil = undefined;
   player.outOfBoundsRemainingMs = 0;
+}
+
+function activateSpawnProtection(player: PlayerState, now: number): void {
+  player.spawnProtectionUntil = now + SPAWN_PROTECTION_MS;
+  player.spawnProtectionRemainingMs = SPAWN_PROTECTION_MS;
+}
+
+function updateSpawnProtection(player: PlayerState, now: number): void {
+  if (!player.spawnProtectionUntil || now >= player.spawnProtectionUntil) {
+    clearSpawnProtection(player);
+    return;
+  }
+
+  player.spawnProtectionRemainingMs = Math.max(0, player.spawnProtectionUntil - now);
+}
+
+function clearSpawnProtection(player: PlayerState): void {
+  player.spawnProtectionUntil = undefined;
+  player.spawnProtectionRemainingMs = 0;
+}
+
+export function isPlayerSpawnProtected(player: PlayerState, now: number): boolean {
+  return player.status === "alive" && Boolean(player.spawnProtectionUntil && now < player.spawnProtectionUntil);
 }
 
 function playerForward(player: PlayerState): Vec3 {
@@ -506,12 +598,12 @@ function fireFlare(room: RoomState, player: PlayerState, now: number, events: Co
   events.push({ type: "launch", roomId: room.id, playerId: player.id, weapon: "flare" });
 }
 
-function updateMissileLock(room: RoomState, player: PlayerState, dt: number): void {
+function updateMissileLock(room: RoomState, player: PlayerState, dt: number, now: number): void {
   const currentTarget =
-    player.missileLockTargetId && isLockValid(room, player, player.missileLockTargetId, MISSILE_LOCK_BREAK_DOT)
+    player.missileLockTargetId && isLockValid(room, player, player.missileLockTargetId, MISSILE_LOCK_BREAK_DOT, now)
       ? room.players[player.missileLockTargetId]
       : undefined;
-  const target = currentTarget ?? findMissileLockCandidate(room, player, MISSILE_LOCK_DOT);
+  const target = currentTarget ?? findMissileLockCandidate(room, player, MISSILE_LOCK_DOT, now);
 
   if (!target) {
     clearMissileLock(player);
@@ -534,9 +626,9 @@ function clearMissileLock(player: PlayerState): void {
   player.missileLockAcquired = false;
 }
 
-function isLockValid(room: RoomState, player: PlayerState, targetId: string, requiredDot: number): boolean {
+function isLockValid(room: RoomState, player: PlayerState, targetId: string, requiredDot: number, now: number): boolean {
   const target = room.players[targetId];
-  if (!target || target.id === player.id || target.status !== "alive") {
+  if (!target || target.id === player.id || target.status !== "alive" || isPlayerSpawnProtected(target, now)) {
     return false;
   }
 
@@ -549,11 +641,11 @@ function isLockValid(room: RoomState, player: PlayerState, targetId: string, req
   return dot(playerForward(player), normalize(offset)) >= requiredDot;
 }
 
-function findMissileLockCandidate(room: RoomState, player: PlayerState, requiredDot: number): PlayerState | undefined {
+function findMissileLockCandidate(room: RoomState, player: PlayerState, requiredDot: number, now: number): PlayerState | undefined {
   const forward = playerForward(player);
 
   return Object.values(room.players)
-    .filter((candidate) => candidate.id !== player.id && candidate.status === "alive")
+    .filter((candidate) => candidate.id !== player.id && candidate.status === "alive" && !isPlayerSpawnProtected(candidate, now))
     .map((candidate) => {
       const offset = subtract(candidate.position, player.position);
       const range = distance(candidate.position, player.position);
@@ -580,7 +672,7 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
         projectile.targetType = "flare";
       }
 
-      const targetPosition = getMissileTargetPosition(room, projectile);
+      const targetPosition = getMissileTargetPosition(room, projectile, now);
       if (targetPosition) {
         const desired = scale(normalize(subtract(targetPosition, projectile.position)), MISSILE_SPEED);
         projectile.velocity = scale(normalize(add(scale(projectile.velocity, 1 - clamp(MISSILE_TURN_RATE * dt, 0, 1)), scale(desired, clamp(MISSILE_TURN_RATE * dt, 0, 1)))), MISSILE_SPEED);
@@ -614,7 +706,7 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
         return;
       }
 
-      const hit = findMissileFuseTarget(room, projectile);
+      const hit = findMissileFuseTarget(room, projectile, now);
       if (hit) {
         detonateMissile(room, projectile, "player", now, events, hit.id);
         delete room.projectiles[projectile.id];
@@ -622,7 +714,7 @@ function stepProjectiles(room: RoomState, dt: number, now: number, events: Comba
       return;
     }
 
-    const hit = findBulletHit(room, projectile);
+    const hit = findBulletHit(room, projectile, now);
     if (hit) {
       detonateBullet(room, projectile, "player", now, events, hit);
       delete room.projectiles[projectile.id];
@@ -676,7 +768,7 @@ function detonateMissile(
   emitProjectileImpact(room, projectile, reason, events);
 
   Object.values(room.players).forEach((player) => {
-    if (player.status !== "alive" || player.id === projectile.ownerId) {
+    if (player.status !== "alive" || player.id === projectile.ownerId || isPlayerSpawnProtected(player, now)) {
       return;
     }
 
@@ -705,7 +797,7 @@ function findMissileFlareTarget(room: RoomState, missile: ProjectileState): Proj
     .sort((a, b) => a.range - b.range)[0]?.flare;
 }
 
-function getMissileTargetPosition(room: RoomState, missile: ProjectileState): Vec3 | undefined {
+function getMissileTargetPosition(room: RoomState, missile: ProjectileState, now: number): Vec3 | undefined {
   if (!missile.targetId) {
     return undefined;
   }
@@ -715,12 +807,12 @@ function getMissileTargetPosition(room: RoomState, missile: ProjectileState): Ve
   }
 
   const target = room.players[missile.targetId];
-  return target?.status === "alive" ? target.position : undefined;
+  return target?.status === "alive" && !isPlayerSpawnProtected(target, now) ? target.position : undefined;
 }
 
-function findBulletHit(room: RoomState, projectile: ProjectileState): PlayerState | undefined {
+function findBulletHit(room: RoomState, projectile: ProjectileState, now: number): PlayerState | undefined {
   return Object.values(room.players).find((player) => {
-    if (player.id === projectile.ownerId || player.status !== "alive") {
+    if (player.id === projectile.ownerId || player.status !== "alive" || isPlayerSpawnProtected(player, now)) {
       return false;
     }
 
@@ -728,9 +820,9 @@ function findBulletHit(room: RoomState, projectile: ProjectileState): PlayerStat
   });
 }
 
-function findMissileFuseTarget(room: RoomState, projectile: ProjectileState): PlayerState | undefined {
+function findMissileFuseTarget(room: RoomState, projectile: ProjectileState, now: number): PlayerState | undefined {
   return Object.values(room.players)
-    .filter((player) => player.id !== projectile.ownerId && player.status === "alive")
+    .filter((player) => player.id !== projectile.ownerId && player.status === "alive" && !isPlayerSpawnProtected(player, now))
     .map((player) => ({ player, range: distance(player.position, projectile.position) }))
     .filter(({ range }) => range <= PLAYER_HIT_RADIUS + Math.max(MISSILE_HIT_RADIUS, MISSILE_PROXIMITY_RADIUS))
     .sort((a, b) => a.range - b.range)[0]?.player;
@@ -763,6 +855,10 @@ function applyDamage(
     return;
   }
 
+  if (isPlayerSpawnProtected(victim, now)) {
+    return;
+  }
+
   victim.health = Math.max(0, victim.health - damage);
   events.push({ type: "hit", roomId: room.id, attackerId, victimId, damage, weapon });
 
@@ -776,6 +872,7 @@ function applyDamage(
   victim.velocity = { x: 0, y: 0, z: 0 };
   clearMissileLock(victim);
   clearOutOfBoundsWarning(victim);
+  clearSpawnProtection(victim);
 
   const attacker = room.players[attackerId];
   if (attacker && attacker.id !== victim.id) {
@@ -786,7 +883,7 @@ function applyDamage(
 }
 
 function respawnPlayer(room: RoomState, player: PlayerState, index: number, now: number): void {
-  const spawn = spawnForIndex(index);
+  const spawn = selectSpawnForPlayer(room, player.id, index);
   player.status = "alive";
   player.position = cloneVec3(spawn.position);
   player.rotation = { ...spawn.rotation };
@@ -802,6 +899,7 @@ function respawnPlayer(room: RoomState, player: PlayerState, index: number, now:
   player.flareCooldown = 0;
   clearMissileLock(player);
   clearOutOfBoundsWarning(player);
+  activateSpawnProtection(player, now);
   player.respawnAt = 0;
   player.input = neutralInput(now);
 }
