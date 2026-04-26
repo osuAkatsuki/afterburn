@@ -13,9 +13,9 @@ type TerrainClipmapConfig = {
 };
 
 const TERRAIN_LEVELS: TerrainClipmapConfig[] = [
-  { name: "near", halfSize: 820, innerHalfSize: 0, step: 18, snapStep: 72, yOffset: 0 },
-  { name: "mid", halfSize: 2200, innerHalfSize: 760, step: 48, snapStep: 192, yOffset: -0.18 },
-  { name: "far", halfSize: 5600, innerHalfSize: 2040, step: 160, snapStep: 640, yOffset: -0.45 }
+  { name: "near", halfSize: 720, innerHalfSize: 0, step: 30, snapStep: 180, yOffset: 0 },
+  { name: "mid", halfSize: 2300, innerHalfSize: 660, step: 90, snapStep: 540, yOffset: -0.18 },
+  { name: "far", halfSize: 5700, innerHalfSize: 2100, step: 240, snapStep: 1440, yOffset: -0.45 }
 ];
 
 const TERRAIN_SAMPLE_CACHE_LIMIT = 120_000;
@@ -95,11 +95,12 @@ class TerrainClipmapLevel {
 
     geometry.setAttribute("position", new THREE.BufferAttribute(this.positions, 3));
     geometry.setAttribute("color", new THREE.BufferAttribute(this.colors, 3));
+    geometry.setAttribute("normal", createUpNormals(this.localCoordinates.length));
     geometry.setIndex(createClipmapIndices(segments, this.actualHalfSize, config));
 
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = `terrain-${config.name}`;
-    this.mesh.receiveShadow = true;
+    this.mesh.receiveShadow = false;
     this.mesh.castShadow = false;
     this.mesh.frustumCulled = false;
   }
@@ -136,7 +137,6 @@ class TerrainClipmapLevel {
     const geometry = this.mesh.geometry;
     geometry.attributes.position.needsUpdate = true;
     geometry.attributes.color.needsUpdate = true;
-    geometry.computeVertexNormals();
   }
 
   dispose(): void {
@@ -161,6 +161,14 @@ function createLocalCoordinates(segments: number, halfSize: number, step: number
     }
   }
   return coordinates;
+}
+
+function createUpNormals(vertexCount: number): THREE.BufferAttribute {
+  const normals = new Float32Array(vertexCount * 3);
+  for (let i = 0; i < normals.length; i += 3) {
+    normals[i + 1] = 1;
+  }
+  return new THREE.BufferAttribute(normals, 3);
 }
 
 function createClipmapIndices(segments: number, halfSize: number, config: TerrainClipmapConfig): number[] {

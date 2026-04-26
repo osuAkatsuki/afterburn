@@ -22,7 +22,7 @@ export class SkySystem {
     sun.shadow.mapSize.set(2048, 2048);
     this.scene.add(sun);
 
-    for (let i = 0; i < 42; i += 1) {
+    for (let i = 0; i < 22; i += 1) {
       const cloud = this.createCloud();
       const angle = Math.random() * Math.PI * 2;
       const radius = 1200 + Math.random() * 5400;
@@ -86,12 +86,12 @@ export class SkySystem {
     const group = new THREE.Group();
     const material = new THREE.MeshStandardMaterial({ color: "#f8fbff", roughness: 1, transparent: true, opacity: 0.64 });
     const shadowMaterial = new THREE.MeshStandardMaterial({ color: "#cbdce8", roughness: 1, transparent: true, opacity: 0.3 });
-    const count = 7 + Math.floor(Math.random() * 7);
+    const count = 4 + Math.floor(Math.random() * 4);
 
     for (let i = 0; i < count; i += 1) {
-      const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(34 + Math.random() * 42, 0), i % 3 === 0 ? shadowMaterial : material);
-      puff.position.set((i - count / 2) * 34, Math.random() * 22, (Math.random() - 0.5) * 72);
-      puff.scale.set(3.4, 0.38, 1.25);
+      const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(42 + Math.random() * 54, 0), i % 3 === 0 ? shadowMaterial : material);
+      puff.position.set((i - count / 2) * 52, Math.random() * 22, (Math.random() - 0.5) * 88);
+      puff.scale.set(4.4, 0.34, 1.45);
       group.add(puff);
     }
 
