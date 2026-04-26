@@ -128,8 +128,12 @@ export function useGameSocket() {
     socketRef.current?.emit("player:rename", { name });
   }, []);
 
-  const startRound = useCallback(() => {
-    socketRef.current?.emit("round:start");
+  const setReady = useCallback((ready: boolean) => {
+    socketRef.current?.emit("player:ready", { ready });
+  }, []);
+
+  const startRound = useCallback((force = false) => {
+    socketRef.current?.emit("round:start", { force });
   }, []);
 
   const sendInput = useCallback((input: InputFrame) => {
@@ -151,6 +155,7 @@ export function useGameSocket() {
     room,
     roundEndedNotice,
     sendInput,
+    setReady,
     setLocalStatus,
     snapshot,
     startRound,

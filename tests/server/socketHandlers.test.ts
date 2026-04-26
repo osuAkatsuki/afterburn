@@ -106,6 +106,30 @@ describe("socketHandlers", () => {
     expect(snapshot.room.players["host-client"].name).toBe("Viper");
   });
 
+  it("broadcasts player ready updates and starts when ready", async () => {
+    const harness = await createHarness("RDY01");
+    const host = await harness.connectClient();
+    const hostJoined = waitForEvent(host, "room:joined");
+    const hostInitialSnapshot = waitForEvent(host, "state:snapshot");
+
+    host.emit("room:create", { name: "Host", clientId: "host-client" });
+
+    await hostJoined;
+    await hostInitialSnapshot;
+
+    const readySnapshot = waitForEvent(host, "state:snapshot");
+    host.emit("player:ready", { ready: true });
+
+    expect((await readySnapshot).room.players["host-client"].ready).toBe(true);
+
+    const startSnapshot = waitForEvent(host, "state:snapshot");
+    host.emit("round:start", {});
+
+    const snapshot = await startSnapshot;
+    expect(snapshot.room.phase).toBe("playing");
+    expect(snapshot.room.players["host-client"].ready).toBe(false);
+  });
+
   it("broadcasts a room snapshot when a player disconnects", async () => {
     const harness = await createHarness("ROOMC");
     const host = await harness.connectClient();

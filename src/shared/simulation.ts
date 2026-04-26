@@ -122,6 +122,7 @@ export function createPlayer(id: string, name: string, index = 0, now = Date.now
     id,
     name: cleanName(name),
     color: palette[index % palette.length],
+    ready: false,
     status: "lobby",
     position: spawn.position,
     velocity: { x: 0, y: 0, z: MIN_SPEED },
@@ -166,6 +167,7 @@ export function startRound(room: RoomState, now = Date.now()): void {
   room.now = now;
 
   Object.values(room.players).forEach((player, index) => {
+    player.ready = false;
     resetPlayerForRound(player, index, now);
   });
 }
@@ -230,6 +232,9 @@ export function stepRoom(room: RoomState, dtSeconds: number, now = room.now + dt
   if (now >= room.endsAt) {
     room.phase = "ended";
     room.winnerId = getWinnerId(room);
+    Object.values(room.players).forEach((player) => {
+      player.ready = false;
+    });
   }
 
   return events;

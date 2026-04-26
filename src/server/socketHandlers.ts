@@ -25,8 +25,18 @@ export function registerGameSocketHandlers(io: GameServer, manager: GameRoomMana
       joinSocketRoom(io, manager, socket, () => manager.joinRoom(roomId, socket.id, readName(payload), Date.now(), readClientId(payload)));
     });
 
-    socket.on("round:start", () => {
-      const result = manager.startRoom(socket.id);
+    socket.on("round:start", (payload = {}) => {
+      const result = manager.startRoom(socket.id, Date.now(), Boolean(payload?.force));
+      if (!result.ok) {
+        emitError(socket, result.message);
+        return;
+      }
+
+      emitSnapshot(io, manager, result.room);
+    });
+
+    socket.on("player:ready", (payload = {}) => {
+      const result = manager.setReady(socket.id, payload?.ready);
       if (!result.ok) {
         emitError(socket, result.message);
         return;

@@ -39,6 +39,7 @@ export type PlayerState = {
   id: string;
   name: string;
   color: string;
+  ready: boolean;
   status: PlayerStatus;
   position: Vec3;
   velocity: Vec3;
@@ -168,6 +169,14 @@ export type PlayerRenamePayload = {
   name?: string;
 };
 
+export type PlayerReadyPayload = {
+  ready?: boolean;
+};
+
+export type RoundStartPayload = {
+  force?: boolean;
+};
+
 export type NetPingPayload = {
   clientTime: number;
 };
@@ -184,8 +193,9 @@ export type NetLatencyPayload = {
 export type ClientToServerEvents = {
   "room:create": (payload?: RoomCreatePayload) => void;
   "room:join": (payload?: RoomJoinPayload) => void;
-  "round:start": () => void;
+  "round:start": (payload?: RoundStartPayload) => void;
   "player:rename": (payload?: PlayerRenamePayload) => void;
+  "player:ready": (payload?: PlayerReadyPayload) => void;
   "input:update": (input: Partial<InputFrame>) => void;
   "net:ping": (payload: NetPingPayload) => void;
   "net:latency": (payload: NetLatencyPayload) => void;

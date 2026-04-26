@@ -7,13 +7,15 @@ type LobbyProps = {
   callsign: string;
   roomCode: string;
   room?: RoomState;
+  playerId: string;
   statusLine: string;
   onCallsignChange: (value: string) => void;
   onRoomCodeChange: (value: string) => void;
   onCreateRoom: () => void;
   onJoinRoom: () => void;
   onShareRoom: () => void;
-  onStartRound: () => void;
+  onReadyChange: (ready: boolean) => void;
+  onStartRound: (force?: boolean) => void;
 };
 
 export function Lobby({
@@ -22,12 +24,14 @@ export function Lobby({
   callsign,
   roomCode,
   room,
+  playerId,
   statusLine,
   onCallsignChange,
   onRoomCodeChange,
   onCreateRoom,
   onJoinRoom,
   onShareRoom,
+  onReadyChange,
   onStartRound
 }: LobbyProps) {
   if (!visible) {
@@ -35,7 +39,15 @@ export function Lobby({
   }
 
   const hasRoom = Boolean(room);
-  const canLaunch = Boolean(room && room.hostId && room.phase !== "playing");
+  const players = Object.values(room?.players ?? {});
+  const totalPlayers = players.length;
+  const readyCount = players.filter((player) => player.ready).length;
+  const localPlayer = playerId && room ? room.players[playerId] : undefined;
+  const localReady = Boolean(localPlayer?.ready);
+  const isHost = Boolean(room && room.hostId === playerId);
+  const allReady = totalPlayers > 0 && readyCount === totalPlayers;
+  const canForceStart = isHost && localReady && !allReady && readyCount > 1;
+  const startLabel = room?.phase === "ended" ? "Restart" : "Launch";
 
   return (
     <section className="overlay" id="lobby">
@@ -84,16 +96,26 @@ export function Lobby({
               <button type="button" onClick={onShareRoom}>
                 Share Link
               </button>
-              <button type="button" onClick={onStartRound} disabled={!canLaunch}>
-                {room.phase === "ended" ? "Restart" : "Launch"}
-              </button>
+              {isHost && allReady ? (
+                <button type="button" onClick={() => onStartRound(false)}>
+                  {startLabel}
+                </button>
+              ) : isHost && canForceStart ? (
+                <button type="button" onClick={() => onStartRound(true)}>
+                  Force Start ({readyCount}/{totalPlayers} ready)
+                </button>
+              ) : (
+                <button type="button" onClick={() => onReadyChange(!localReady)} disabled={!localPlayer}>
+                  {localReady ? "Unready" : "Ready"}
+                </button>
+              )}
             </div>
             <ul className="player-list">
-              {Object.values(room.players).map((player) => (
+              {players.map((player) => (
                 <li key={player.id}>
                   <span style={{ "--pilot": player.color } as React.CSSProperties} />
                   <strong>{player.name}</strong>
-                  <em>{playerStatusLabel(room, player)}</em>
+                  <em className={player.ready ? "ready" : ""}>{playerStatusLabel(room, player)}</em>
                 </li>
               ))}
             </ul>

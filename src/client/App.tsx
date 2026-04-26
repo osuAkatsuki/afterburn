@@ -36,6 +36,7 @@ export function App() {
     room,
     roundEndedNotice,
     sendInput,
+    setReady: emitSetReady,
     setLocalStatus,
     snapshot,
     startRound: emitStartRound,
@@ -137,9 +138,13 @@ export function App() {
     setLocalStatus("Room link copied.");
   }, [room, setLocalStatus]);
 
-  const startRound = useCallback(() => {
+  const setReady = useCallback((ready: boolean) => {
+    emitSetReady(ready);
+  }, [emitSetReady]);
+
+  const startRound = useCallback((force = false) => {
     setShowEndScreen(false);
-    emitStartRound();
+    emitStartRound(force);
   }, [emitStartRound]);
 
   const updateDebugStats = useCallback((stats: ClientDebugStats) => {
@@ -171,12 +176,14 @@ export function App() {
         callsign={callsign}
         roomCode={roomCode}
         room={room}
+        playerId={playerId}
         statusLine={statusLine}
         onCallsignChange={setCallsign}
         onRoomCodeChange={setRoomCode}
         onCreateRoom={createRoom}
         onJoinRoom={joinRoom}
         onShareRoom={shareRoom}
+        onReadyChange={setReady}
         onStartRound={startRound}
       />
       <EndScreen room={room} visible={showEndScreen && room?.phase === "ended"} onBackToLobby={() => setShowEndScreen(false)} />

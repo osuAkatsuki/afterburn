@@ -889,6 +889,10 @@ h2 {
   font-style: normal;
 }
 
+.player-list em.ready {
+  color: #86efac;
+}
+
 .pilot-card,
 .room-grid,
 .room-card {

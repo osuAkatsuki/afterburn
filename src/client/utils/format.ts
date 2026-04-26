@@ -19,15 +19,13 @@ export function roundTimeLabel(room?: RoomState): string {
 }
 
 export function playerStatusLabel(room: RoomState, player: PlayerState): string {
-  if (room.hostId === player.id) {
-    return room.phase === "playing" ? "Host flying" : "Host";
-  }
-
   if (room.phase === "playing") {
-    return player.status === "dead" ? "Respawning" : "Flying";
+    const status = player.status === "dead" ? "Respawning" : "Flying";
+    return room.hostId === player.id ? `Host / ${status}` : status;
   }
 
-  return "In hangar";
+  const ready = player.ready ? "Ready" : "Not ready";
+  return room.hostId === player.id ? `Host / ${ready}` : ready;
 }
 
 export function missileReadyRatio(player?: PlayerState): number {

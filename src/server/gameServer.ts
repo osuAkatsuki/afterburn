@@ -94,7 +94,7 @@ export class GameRoomManager {
     return { ok: true, room, playerId };
   }
 
-  startRoom(socketId: string, now = Date.now()): JoinResult {
+  startRoom(socketId: string, now = Date.now(), force = false): JoinResult {
     const playerId = this.resolvePlayerId(socketId);
     const room = this.getRoomForPlayer(playerId);
     if (!room) {
@@ -114,6 +114,20 @@ export class GameRoomManager {
       return { ok: false, message: "Need at least one pilot to start." };
     }
 
+    const readyPlayers = players.filter((player) => player.ready);
+    const hostReady = Boolean(room.players[playerId]?.ready);
+    if (!hostReady) {
+      return { ok: false, message: "Ready up before launching." };
+    }
+
+    if (!force && readyPlayers.length !== players.length) {
+      return { ok: false, message: "Waiting for all pilots to ready up." };
+    }
+
+    if (force && players.length > 1 && readyPlayers.length < 2) {
+      return { ok: false, message: "Need another ready pilot to force start." };
+    }
+
     startRound(room, now);
     this.clearRoomInputQueues(room);
     return { ok: true, room, playerId };
@@ -128,6 +142,23 @@ export class GameRoomManager {
     }
 
     player.name = uniquePlayerName(room, name, playerId);
+    room.now = now;
+    return { ok: true, room, playerId };
+  }
+
+  setReady(socketId: string, ready: unknown, now = Date.now()): JoinResult {
+    const playerId = this.resolvePlayerId(socketId);
+    const room = this.getRoomForPlayer(playerId);
+    const player = room?.players[playerId];
+    if (!room || !player) {
+      return { ok: false, message: "Join or create a room first." };
+    }
+
+    if (room.phase === "playing") {
+      return { ok: false, message: "Cannot change ready state while flying." };
+    }
+
+    player.ready = Boolean(ready);
     room.now = now;
     return { ok: true, room, playerId };
   }
@@ -172,6 +203,7 @@ export class GameRoomManager {
     }
 
     this.disconnectedAt.set(playerId, now);
+    player.ready = false;
     player.input = neutralInput(now);
     this.inputQueues.delete(playerId);
     room.now = now;

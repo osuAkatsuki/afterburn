@@ -24,18 +24,50 @@ describe("GameRoomManager", () => {
     expect(full.ok ? "" : full.message).toMatch(/full/i);
   });
 
-  it("lets the host launch a sandbox round without guest readiness", () => {
+  it("requires ready pilots before a normal launch", () => {
     const manager = new GameRoomManager(ids("READY"));
     const created = manager.createRoom("host", "Host", 1000);
     expect(created.ok).toBe(true);
     manager.joinRoom("READY", "guest", "Guest", 1000);
 
-    const started = manager.startRoom("host", 1100);
+    const unready = manager.startRoom("host", 1100);
+    expect(unready.ok).toBe(false);
+    expect(unready.ok ? "" : unready.message).toMatch(/ready up/i);
+
+    manager.setReady("host", true, 1110);
+    const waiting = manager.startRoom("host", 1120);
+    expect(waiting.ok).toBe(false);
+    expect(waiting.ok ? "" : waiting.message).toMatch(/all pilots/i);
+
+    manager.setReady("guest", true, 1130);
+    const started = manager.startRoom("host", 1140);
     expect(started.ok).toBe(true);
     if (!started.ok) return;
     expect(started.room.phase).toBe("playing");
     expect(started.room.players.host.status).toBe("alive");
     expect(started.room.players.guest.status).toBe("alive");
+    expect(started.room.players.host.ready).toBe(false);
+    expect(started.room.players.guest.ready).toBe(false);
+  });
+
+  it("lets the host force start after another pilot is ready", () => {
+    const manager = new GameRoomManager(ids("FORCE"));
+    const created = manager.createRoom("host", "Host", 1000);
+    expect(created.ok).toBe(true);
+    manager.joinRoom("FORCE", "guest-a", "Guest A", 1000);
+    manager.joinRoom("FORCE", "guest-b", "Guest B", 1000);
+
+    manager.setReady("host", true, 1100);
+    const tooSoon = manager.startRoom("host", 1110, true);
+    expect(tooSoon.ok).toBe(false);
+    expect(tooSoon.ok ? "" : tooSoon.message).toMatch(/another ready/i);
+
+    manager.setReady("guest-a", true, 1120);
+    const started = manager.startRoom("host", 1130, true);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    expect(started.room.phase).toBe("playing");
+    expect(started.room.players["guest-b"].status).toBe("alive");
   });
 
   it("lets the host launch solo and allows late joins into an active room", () => {
@@ -43,6 +75,7 @@ describe("GameRoomManager", () => {
     const created = manager.createRoom("host", "Host", 1000);
     expect(created.ok).toBe(true);
 
+    manager.setReady("host", true, 1050);
     const started = manager.startRoom("host", 1100);
     expect(started.ok).toBe(true);
     if (!started.ok) return;
@@ -132,6 +165,7 @@ describe("GameRoomManager", () => {
     const manager = new GameRoomManager(ids("RECON"));
     const created = manager.createRoom("socket-a", "Host", 1000, "client-a");
     expect(created.ok).toBe(true);
+    manager.setReady("socket-a", true, 1050);
     const started = manager.startRoom("socket-a", 1100);
     expect(started.ok).toBe(true);
     if (!started.ok) return;
@@ -182,6 +216,8 @@ describe("GameRoomManager", () => {
     manager.setInput("host", { seq: 1, thrust: 1 });
     expect(manager.getRoom("INPUT")?.players.host.lastInputSeq).toBe(0);
 
+    manager.setReady("host", true);
+    manager.setReady("guest", true);
     manager.startRoom("host");
     manager.setInput("host", { seq: 1, thrust: 1 });
     expect(manager.getRoom("INPUT")?.players.host.lastInputSeq).toBe(0);
@@ -208,6 +244,7 @@ describe("GameRoomManager", () => {
   it("acks inputs only after processing them in server ticks", () => {
     const manager = new GameRoomManager(ids("QUEUE"));
     manager.createRoom("host", "Host", 1000);
+    manager.setReady("host", true, 1050);
     manager.startRoom("host", 1100);
 
     manager.setInput("host", { seq: 1, roll: 1 });
