@@ -70,6 +70,24 @@ describe("socketHandlers", () => {
     expect(payload.serverTime).toBeLessThanOrEqual(Date.now());
   });
 
+  it("broadcasts player latency updates", async () => {
+    const harness = await createHarness("PING2");
+    const host = await harness.connectClient();
+    const hostJoined = waitForEvent(host, "room:joined");
+    const hostInitialSnapshot = waitForEvent(host, "state:snapshot");
+
+    host.emit("room:create", { name: "Host", clientId: "host-client" });
+
+    await hostJoined;
+    await hostInitialSnapshot;
+
+    const latencySnapshot = waitForEvent(host, "state:snapshot");
+    host.emit("net:latency", { rttMs: 123.4 });
+
+    const snapshot = await latencySnapshot;
+    expect(snapshot.room.players["host-client"].latencyMs).toBe(123);
+  });
+
   it("broadcasts a room snapshot when a player disconnects", async () => {
     const harness = await createHarness("ROOMC");
     const host = await harness.connectClient();

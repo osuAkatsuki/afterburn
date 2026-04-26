@@ -262,6 +262,28 @@ describe("shared simulation", () => {
     expect(player.health).toBe(0);
   });
 
+  it("crashes both aircraft on player collision without awarding score", () => {
+    const room = twoPlayerRoom();
+    const first = room.players.p1;
+    const second = room.players.p2;
+
+    first.position = { x: ARENA_RADIUS * 0.5, y: 220, z: 0 };
+    second.position = { x: ARENA_RADIUS * 0.5 + PLAYER_HIT_RADIUS * 2 - 0.1, y: 220, z: 0 };
+
+    const events = stepRoom(room, 0, 1050);
+
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: first.id, reason: "collision" });
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: second.id, reason: "collision" });
+    expect(first.status).toBe("dead");
+    expect(second.status).toBe("dead");
+    expect(first.health).toBe(0);
+    expect(second.health).toBe(0);
+    expect(first.deaths).toBe(1);
+    expect(second.deaths).toBe(1);
+    expect(first.score).toBe(0);
+    expect(second.score).toBe(0);
+  });
+
   it("applies bullet hits, awards kills, and respawns players", () => {
     const room = twoPlayerRoom();
     const attacker = room.players.p1;
@@ -295,7 +317,7 @@ describe("shared simulation", () => {
 
     attacker.position = { x: 0, y: 120, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    victim.position = { x: PLAYER_HIT_RADIUS + BULLET_HIT_RADIUS + 3, y: 120, z: 28 };
+    victim.position = { x: PLAYER_HIT_RADIUS + BULLET_HIT_RADIUS + 3, y: 120, z: 80 };
     victim.health = 12;
 
     setPlayerInput(attacker, { seq: 1, fireGun: true });

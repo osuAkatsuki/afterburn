@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DISCONNECT_GRACE_MS, MAX_PLAYERS } from "../../src/shared/constants.js";
-import { GameRoomManager } from "../../src/server/gameServer.js";
+import { GameRoomManager, normalizeLatencyMs } from "../../src/server/gameServer.js";
 
 function ids(...values: string[]) {
   const queue = [...values];
@@ -165,6 +165,22 @@ describe("GameRoomManager", () => {
     expect(manager.getRoom("INPUT")?.players.host.lastInputSeq).toBe(0);
     manager.tickRooms();
     expect(manager.getRoom("INPUT")?.players.host.lastInputSeq).toBe(1);
+  });
+
+  it("stores sanitized latency for connected players", () => {
+    const manager = new GameRoomManager(ids("PING1"));
+    const created = manager.createRoom("socket-a", "Host", 1000, "client-a");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const room = manager.setLatency("socket-a", 87.6, 1100);
+
+    expect(room?.players["client-a"].latencyMs).toBe(88);
+    expect(room?.now).toBe(1100);
+    expect(manager.setLatency("missing", 44)).toBeUndefined();
+    expect(normalizeLatencyMs(-10)).toBe(0);
+    expect(normalizeLatencyMs(12_000)).toBe(9999);
+    expect(normalizeLatencyMs(Number.NaN)).toBe(0);
   });
 
   it("acks inputs only after processing them in server ticks", () => {

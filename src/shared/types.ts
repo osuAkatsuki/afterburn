@@ -48,6 +48,7 @@ export type PlayerState = {
   health: number;
   score: number;
   deaths: number;
+  latencyMs: number;
   gunHeat: number;
   gunCooldown: number;
   missilesRemaining: number;
@@ -115,7 +116,7 @@ export type CombatEvent =
       type: "crash";
       roomId: string;
       playerId: string;
-      reason: "terrain" | "out-of-bounds";
+      reason: "terrain" | "out-of-bounds" | "collision";
     };
 
 export type RoomState = {
@@ -172,12 +173,17 @@ export type NetPongPayload = {
   serverTime: number;
 };
 
+export type NetLatencyPayload = {
+  rttMs: number;
+};
+
 export type ClientToServerEvents = {
   "room:create": (payload?: RoomCreatePayload) => void;
   "room:join": (payload?: RoomJoinPayload) => void;
   "round:start": () => void;
   "input:update": (input: Partial<InputFrame>) => void;
   "net:ping": (payload: NetPingPayload) => void;
+  "net:latency": (payload: NetLatencyPayload) => void;
 };
 
 export type ServerToClientEvents = {

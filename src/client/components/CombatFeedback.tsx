@@ -78,7 +78,7 @@ export function CombatFeedback({ notice, playerId, room }: CombatFeedbackProps) 
       nextItems.push({
         id: `${notice.id}-crash`,
         kind: "damage",
-        text: event.reason === "out-of-bounds" ? "OUT OF BOUNDS" : "IMPACT"
+        text: event.reason === "out-of-bounds" ? "OUT OF BOUNDS" : event.reason === "collision" ? "COLLISION" : "IMPACT"
       });
     }
 

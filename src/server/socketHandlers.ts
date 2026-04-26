@@ -46,6 +46,13 @@ export function registerGameSocketHandlers(io: GameServer, manager: GameRoomMana
       });
     });
 
+    socket.on("net:latency", (payload) => {
+      const room = manager.setLatency(socket.id, payload?.rttMs);
+      if (room && room.phase !== "playing") {
+        emitSnapshot(io, manager, room);
+      }
+    });
+
     socket.on("disconnect", () => {
       const changedRooms = manager.disconnectSocket(socket.id);
       changedRooms.forEach((room) => emitSnapshot(io, manager, room));

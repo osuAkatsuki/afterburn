@@ -130,6 +130,19 @@ export class GameRoomManager {
     this.queueInput(player.id, player.lastInputSeq, input);
   }
 
+  setLatency(socketId: string, rttMs: unknown, now = Date.now()): RoomState | undefined {
+    const playerId = this.resolvePlayerId(socketId);
+    const room = this.getRoomForPlayer(playerId);
+    const player = room?.players[playerId];
+    if (!room || !player) {
+      return undefined;
+    }
+
+    player.latencyMs = normalizeLatencyMs(rttMs);
+    room.now = now;
+    return room;
+  }
+
   disconnectSocket(socketId: string, now = Date.now()): RoomState[] {
     const playerId = this.socketPlayers.get(socketId);
     if (!playerId || this.playerSockets.get(playerId) !== socketId) {
@@ -352,6 +365,14 @@ export function normalizeClientId(clientId: unknown, fallback: string): string {
   const raw = typeof clientId === "string" ? clientId : "";
   const normalized = raw.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
   return normalized.length > 0 ? normalized : fallback;
+}
+
+export function normalizeLatencyMs(rttMs: unknown): number {
+  if (typeof rttMs !== "number" || !Number.isFinite(rttMs)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(9999, Math.round(rttMs)));
 }
 
 export function uniquePlayerName(room: RoomState, requestedName: string, playerId: string): string {

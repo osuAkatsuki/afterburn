@@ -131,6 +131,7 @@ export function createPlayer(id: string, name: string, index = 0, now = Date.now
     health: PLAYER_HEALTH,
     score: 0,
     deaths: 0,
+    latencyMs: 0,
     gunHeat: 0,
     gunCooldown: 0,
     missilesRemaining: MISSILE_AMMO_PER_ROUND,
@@ -223,6 +224,7 @@ export function stepRoom(room: RoomState, dtSeconds: number, now = room.now + dt
     }
   });
 
+  resolvePlayerCollisions(room, now, events);
   stepProjectiles(room, dt, now, events);
 
   if (now >= room.endsAt) {
@@ -373,7 +375,7 @@ function resolveArenaHazards(
 function crashPlayer(
   room: RoomState,
   player: PlayerState,
-  reason: "terrain" | "out-of-bounds",
+  reason: "terrain" | "out-of-bounds" | "collision",
   now: number,
   events: CombatEvent[]
 ): void {
@@ -389,6 +391,29 @@ function crashPlayer(
   clearMissileLock(player);
   clearOutOfBoundsWarning(player);
   events.push({ type: "crash", roomId: room.id, playerId: player.id, reason });
+}
+
+function resolvePlayerCollisions(room: RoomState, now: number, events: CombatEvent[]): void {
+  const alivePlayers = Object.values(room.players).filter((player) => player.status === "alive");
+
+  for (let i = 0; i < alivePlayers.length; i += 1) {
+    const player = alivePlayers[i];
+    if (player.status !== "alive") {
+      continue;
+    }
+
+    for (let j = i + 1; j < alivePlayers.length; j += 1) {
+      const other = alivePlayers[j];
+      if (other.status !== "alive") {
+        continue;
+      }
+
+      if (distance(player.position, other.position) <= PLAYER_HIT_RADIUS * 2) {
+        crashPlayer(room, player, "collision", now, events);
+        crashPlayer(room, other, "collision", now, events);
+      }
+    }
+  }
 }
 
 function clearOutOfBoundsWarning(player: PlayerState): void {

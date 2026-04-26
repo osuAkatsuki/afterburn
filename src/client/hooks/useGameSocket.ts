@@ -84,7 +84,9 @@ export function useGameSocket() {
       setNetworkStats(telemetry.current.recordSnapshot(payload));
     });
     socket.on("net:pong", (payload) => {
-      setNetworkStats(telemetry.current.recordPong(payload));
+      const stats = telemetry.current.recordPong(payload);
+      setNetworkStats(stats);
+      socket.emit("net:latency", { rttMs: stats.rttMs });
     });
     socket.on("combat:event", (event: CombatEvent) => {
       noticeId.current += 1;
