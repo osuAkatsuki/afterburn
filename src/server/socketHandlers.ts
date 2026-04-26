@@ -35,6 +35,16 @@ export function registerGameSocketHandlers(io: GameServer, manager: GameRoomMana
       emitSnapshot(io, manager, result.room);
     });
 
+    socket.on("player:rename", (payload = {}) => {
+      const result = manager.renamePlayer(socket.id, readName(payload));
+      if (!result.ok) {
+        emitError(socket, result.message);
+        return;
+      }
+
+      emitSnapshot(io, manager, result.room);
+    });
+
     socket.on("input:update", (input) => {
       manager.setInput(socket.id, input);
     });

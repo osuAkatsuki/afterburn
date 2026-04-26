@@ -120,6 +120,14 @@ export function useGameSocket() {
     socketRef.current?.emit("room:join", { roomId, name, clientId: clientId.current });
   }, []);
 
+  const renamePlayer = useCallback((name: string) => {
+    pendingName.current = name;
+    if (lastJoin.current) {
+      lastJoin.current = { ...lastJoin.current, name };
+    }
+    socketRef.current?.emit("player:rename", { name });
+  }, []);
+
   const startRound = useCallback(() => {
     socketRef.current?.emit("round:start");
   }, []);
@@ -139,6 +147,7 @@ export function useGameSocket() {
     joinRoom,
     networkStats,
     playerId,
+    renamePlayer,
     room,
     roundEndedNotice,
     sendInput,

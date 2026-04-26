@@ -77,6 +77,28 @@ describe("GameRoomManager", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it("renames joined players and keeps callsigns unique", () => {
+    const manager = new GameRoomManager(ids("RENAM"));
+    const created = manager.createRoom("host", "Host", 1000, "host-client");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const joined = manager.joinRoom("RENAM", "guest", "Guest", 1000, "guest-client");
+    expect(joined.ok).toBe(true);
+    if (!joined.ok) return;
+
+    const hostRename = manager.renamePlayer("host", "Eagle", 1100);
+    const guestRename = manager.renamePlayer("guest", "eagle", 1200);
+
+    expect(hostRename.ok).toBe(true);
+    expect(guestRename.ok).toBe(true);
+    if (!hostRename.ok || !guestRename.ok) return;
+    expect(guestRename.room.players["host-client"].name).toBe("Eagle");
+    expect(guestRename.room.players["guest-client"].name).toBe("eagle 2");
+    expect(guestRename.room.now).toBe(1200);
+    expect(manager.renamePlayer("missing", "Ghost").ok).toBe(false);
+  });
+
   it("does not let an active duplicate client id take over another tab", () => {
     const manager = new GameRoomManager(ids("TABS1"));
     const created = manager.createRoom("socket-a", "Pilot", 1000, "same-client");

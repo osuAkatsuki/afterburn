@@ -88,6 +88,24 @@ describe("socketHandlers", () => {
     expect(snapshot.room.players["host-client"].latencyMs).toBe(123);
   });
 
+  it("broadcasts player rename updates", async () => {
+    const harness = await createHarness("NAME1");
+    const host = await harness.connectClient();
+    const hostJoined = waitForEvent(host, "room:joined");
+    const hostInitialSnapshot = waitForEvent(host, "state:snapshot");
+
+    host.emit("room:create", { name: "Host", clientId: "host-client" });
+
+    await hostJoined;
+    await hostInitialSnapshot;
+
+    const renameSnapshot = waitForEvent(host, "state:snapshot");
+    host.emit("player:rename", { name: "Viper" });
+
+    const snapshot = await renameSnapshot;
+    expect(snapshot.room.players["host-client"].name).toBe("Viper");
+  });
+
   it("broadcasts a room snapshot when a player disconnects", async () => {
     const harness = await createHarness("ROOMC");
     const host = await harness.connectClient();

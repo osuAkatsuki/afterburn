@@ -119,6 +119,19 @@ export class GameRoomManager {
     return { ok: true, room, playerId };
   }
 
+  renamePlayer(socketId: string, name: string, now = Date.now()): JoinResult {
+    const playerId = this.resolvePlayerId(socketId);
+    const room = this.getRoomForPlayer(playerId);
+    const player = room?.players[playerId];
+    if (!room || !player) {
+      return { ok: false, message: "Join or create a room first." };
+    }
+
+    player.name = uniquePlayerName(room, name, playerId);
+    room.now = now;
+    return { ok: true, room, playerId };
+  }
+
   setInput(socketId: string, input: Partial<InputFrame>): void {
     const playerId = this.resolvePlayerId(socketId);
     const room = this.getRoomForPlayer(playerId);

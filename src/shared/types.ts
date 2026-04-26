@@ -164,6 +164,10 @@ export type RoomJoinPayload = {
   clientId?: string;
 };
 
+export type PlayerRenamePayload = {
+  name?: string;
+};
+
 export type NetPingPayload = {
   clientTime: number;
 };
@@ -181,6 +185,7 @@ export type ClientToServerEvents = {
   "room:create": (payload?: RoomCreatePayload) => void;
   "room:join": (payload?: RoomJoinPayload) => void;
   "round:start": () => void;
+  "player:rename": (payload?: PlayerRenamePayload) => void;
   "input:update": (input: Partial<InputFrame>) => void;
   "net:ping": (payload: NetPingPayload) => void;
   "net:latency": (payload: NetLatencyPayload) => void;

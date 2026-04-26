@@ -24,7 +24,6 @@ export function App() {
   const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
   const worldPresenterRef = useRef(new ClientWorldPresenter());
-  const autoJoinAttempted = useRef(false);
 
   const {
     combatNotice,
@@ -33,6 +32,7 @@ export function App() {
     joinRoom: emitJoinRoom,
     networkStats,
     playerId,
+    renamePlayer: emitRenamePlayer,
     room,
     roundEndedNotice,
     sendInput,
@@ -53,12 +53,20 @@ export function App() {
   const showLobby = room?.phase !== "playing" && !showEndScreen;
 
   useEffect(() => {
-    if (urlRoom && connectionStatus === "Online" && !autoJoinAttempted.current) {
-      autoJoinAttempted.current = true;
-      persistCallsign(callsign);
-      emitJoinRoom(urlRoom, callsign);
+    persistCallsign(callsign);
+  }, [callsign]);
+
+  useEffect(() => {
+    if (!room || !playerId) {
+      return;
     }
-  }, [callsign, connectionStatus, emitJoinRoom]);
+
+    const timeout = window.setTimeout(() => {
+      emitRenamePlayer(callsign);
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [callsign, emitRenamePlayer, playerId, room?.id]);
 
   useCombatEventEffects(sceneRef, room, combatNotice);
 
