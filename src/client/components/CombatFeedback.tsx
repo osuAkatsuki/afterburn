@@ -1,98 +1,64 @@
 import { useEffect, useRef, useState } from "react";
-import type { CombatEvent, RoomState } from "../../shared/types.js";
-
-type CombatNotice = {
-  id: number;
-  event: CombatEvent;
-};
-
-type FeedbackItem = {
-  id: string;
-  kind: "hit" | "kill" | "damage";
-  text: string;
-};
+import type { RoomState } from "../../shared/types.js";
+import {
+  combatFeedbackItemsForNotice,
+  unprocessedCombatNotices,
+  type CombatFeedbackItem,
+  type CombatNotice
+} from "../utils/combatFeedback.js";
 
 type CombatFeedbackProps = {
-  notice?: CombatNotice;
+  notices: CombatNotice[];
   playerId: string;
   room?: RoomState;
 };
 
-export function CombatFeedback({ notice, playerId, room }: CombatFeedbackProps) {
-  const [items, setItems] = useState<FeedbackItem[]>([]);
-  const processedNoticeId = useRef<number | undefined>(undefined);
+const FEEDBACK_LIFETIME_MS = 1150;
+
+export function CombatFeedback({ notices, playerId, room }: CombatFeedbackProps) {
+  const [items, setItems] = useState<CombatFeedbackItem[]>([]);
+  const processedNoticeId = useRef(0);
   const playerNames = useRef<Record<string, string>>({});
+  const timeouts = useRef<number[]>([]);
 
   useEffect(() => {
     playerNames.current = Object.fromEntries(Object.values(room?.players ?? {}).map((player) => [player.id, player.name]));
   }, [room]);
 
   useEffect(() => {
-    const event = notice?.event;
-    if (!event || !playerId || notice.id === processedNoticeId.current) {
+    return () => {
+      timeouts.current.forEach((timeout) => window.clearTimeout(timeout));
+      timeouts.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!playerId) {
       return;
     }
-    processedNoticeId.current = notice.id;
 
-    const nextItems: FeedbackItem[] = [];
-
-    if (event.type === "hit") {
-      if (event.attackerId === playerId) {
-        const victimName = playerNames.current[event.victimId] ?? "Target";
-        nextItems.push({
-          id: `${notice.id}-hit`,
-          kind: "hit",
-          text: `HIT ${victimName} +${event.damage}`
-        });
-      }
-
-      if (event.victimId === playerId) {
-        nextItems.push({
-          id: `${notice.id}-damage`,
-          kind: "damage",
-          text: `-${event.damage}`
-        });
-      }
+    const pendingNotices = unprocessedCombatNotices(notices, processedNoticeId.current);
+    if (pendingNotices.length === 0) {
+      return;
     }
 
-    if (event.type === "kill") {
-      if (event.attackerId === playerId) {
-        const victimName = playerNames.current[event.victimId] ?? "Target";
-        nextItems.push({
-          id: `${notice.id}-kill`,
-          kind: "kill",
-          text: `KILL ${victimName}`
-        });
-      }
-
-      if (event.victimId === playerId) {
-        nextItems.push({
-          id: `${notice.id}-damage`,
-          kind: "damage",
-          text: "DESTROYED"
-        });
-      }
-    }
-
-    if (event.type === "crash" && event.playerId === playerId) {
-      nextItems.push({
-        id: `${notice.id}-crash`,
-        kind: "damage",
-        text: event.reason === "out-of-bounds" ? "OUT OF BOUNDS" : event.reason === "collision" ? "COLLISION" : "IMPACT"
-      });
-    }
+    processedNoticeId.current = pendingNotices[pendingNotices.length - 1].id;
+    const nextItems = pendingNotices.flatMap((pendingNotice) =>
+      combatFeedbackItemsForNotice(pendingNotice, playerId, playerNames.current)
+    );
 
     if (nextItems.length === 0) {
       return;
     }
 
-    setItems((current) => [...current, ...nextItems].slice(-5));
+    setItems((current) => [...current, ...nextItems].slice(-8));
     const timeout = window.setTimeout(() => {
       setItems((current) => current.filter((item) => !nextItems.some((next) => next.id === item.id)));
-    }, 820);
+      timeouts.current = timeouts.current.filter((currentTimeout) => currentTimeout !== timeout);
+    }, FEEDBACK_LIFETIME_MS);
 
-    return () => window.clearTimeout(timeout);
-  }, [notice, playerId]);
+    timeouts.current.push(timeout);
+  }, [notices, playerId]);
 
   const damageItems = items.filter((item) => item.kind === "damage");
   const confirmations = items.filter((item) => item.kind !== "damage");

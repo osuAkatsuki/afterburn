@@ -757,7 +757,7 @@ meter {
   text-align: center;
   text-transform: uppercase;
   text-shadow: 0 0 14px rgb(253 224 71 / 48%);
-  animation: hit-confirm 820ms ease-out forwards;
+  animation: hit-confirm 1100ms ease-out forwards;
 }
 
 .hit-confirmation.kill {
@@ -775,7 +775,7 @@ meter {
   background:
     radial-gradient(circle at center, transparent 42%, rgb(127 29 29 / 42%) 100%),
     rgb(127 29 29 / 10%);
-  animation: damage-flash 820ms ease-out forwards;
+  animation: damage-flash 1100ms ease-out forwards;
 }
 
 .damage-flash span {

@@ -14,18 +14,16 @@ import type {
 } from "../../shared/types.js";
 import { getClientId, persistClientId } from "../net/ClientSession.js";
 import { createPingPayload, NetworkTelemetry, PING_INTERVAL_MS, type NetworkStats } from "../net/NetworkTelemetry.js";
+import type { CombatNotice } from "../utils/combatFeedback.js";
 
 export type ConnectionStatus = "Connecting" | "Online" | "Offline";
-
-export type CombatNotice = {
-  id: number;
-  event: CombatEvent;
-};
 
 export type RoundEndedNotice = {
   id: number;
   payload: RoundEndedPayload;
 };
+
+const MAX_COMBAT_NOTICES = 32;
 
 type LastJoin = {
   roomId: string;
@@ -44,7 +42,7 @@ export function useGameSocket() {
   const [room, setRoom] = useState<RoomState>();
   const [snapshot, setSnapshot] = useState<StateSnapshotPayload>();
   const [playerId, setPlayerId] = useState("");
-  const [combatNotice, setCombatNotice] = useState<CombatNotice>();
+  const [combatNotices, setCombatNotices] = useState<CombatNotice[]>([]);
   const [roundEndedNotice, setRoundEndedNotice] = useState<RoundEndedNotice>();
   const [networkStats, setNetworkStats] = useState<NetworkStats>(() => telemetry.current.getStats());
 
@@ -77,6 +75,7 @@ export function useGameSocket() {
       clientId.current = payload.playerId;
       lastJoin.current = { roomId: payload.roomId, name: pendingName.current };
       setStatusLine("");
+      setCombatNotices([]);
       history.replaceState(null, "", `?room=${payload.roomId}`);
     });
     socket.on("state:snapshot", (payload: StateSnapshotPayload) => {
@@ -91,7 +90,8 @@ export function useGameSocket() {
     });
     socket.on("combat:event", (event: CombatEvent) => {
       noticeId.current += 1;
-      setCombatNotice({ id: noticeId.current, event });
+      const notice = { id: noticeId.current, event };
+      setCombatNotices((current) => [...current, notice].slice(-MAX_COMBAT_NOTICES));
     });
     socket.on("round:ended", (payload: RoundEndedPayload) => {
       setRoom(payload.room);
@@ -155,7 +155,7 @@ export function useGameSocket() {
 
   return {
     addBot,
-    combatNotice,
+    combatNotices,
     connectionStatus,
     createRoom,
     joinRoom,

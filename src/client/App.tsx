@@ -35,7 +35,7 @@ export function App() {
 
   const {
     addBot: emitAddBot,
-    combatNotice,
+    combatNotices,
     connectionStatus,
     createRoom: emitCreateRoom,
     joinRoom: emitJoinRoom,
@@ -79,7 +79,7 @@ export function App() {
     return () => window.clearTimeout(timeout);
   }, [callsign, emitRenamePlayer, playerId, room?.id]);
 
-  useCombatEventEffects(sceneRef, room, combatNotice);
+  useCombatEventEffects(sceneRef, room, combatNotices);
 
   useEffect(() => {
     if (roundEndedNotice) {
@@ -187,7 +187,7 @@ export function App() {
       <FlightDirector room={room} localPlayer={localPlayer} />
       <Reticle ref={reticleRef} />
       <TacticalWarnings room={room} localPlayer={localPlayer} />
-      <CombatFeedback notice={combatNotice} playerId={playerId} room={room} />
+      <CombatFeedback notices={combatNotices} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />
       <Scoreboard room={room} visible={scoreboardVisible} />
       <DebugOverlay visible={debugVisible} stats={debugStats} networkStats={networkStats} />
