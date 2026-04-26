@@ -71,10 +71,7 @@ export function combatFeedbackItemsForNotices(
   playerId: string,
   playerNames: Record<string, string>
 ): CombatFeedbackItem[] {
-  const items = notices.flatMap((notice) => combatFeedbackItemsForNotice(notice, playerId, playerNames));
-  const hasLocalDestruction = items.some((item) => item.kind === "damage" && item.text === "DESTROYED");
-
-  return hasLocalDestruction ? items.filter((item) => item.kind !== "damage" || item.text === "DESTROYED") : items;
+  return notices.flatMap((notice) => combatFeedbackItemsForNotice(notice, playerId, playerNames));
 }
 
 export function unprocessedCombatNotices(notices: CombatNotice[], lastProcessedId: number): CombatNotice[] {

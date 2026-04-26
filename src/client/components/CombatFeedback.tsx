@@ -58,19 +58,14 @@ export function CombatFeedback({ notices, playerId, room }: CombatFeedbackProps)
     timeouts.current.push(timeout);
   }, [notices, playerId]);
 
-  const damageItems = items.filter((item) => item.kind === "damage");
-  const confirmations = items.filter((item) => item.kind !== "damage");
+  const hasDamageFlash = items.some((item) => item.kind === "damage");
 
   return (
     <div className="combat-feedback" aria-live="polite">
-      {damageItems.map((item) => (
-        <div className="damage-flash" key={item.id}>
-          <span>{item.text}</span>
-        </div>
-      ))}
-      <div className="hit-confirmations">
-        {confirmations.map((item) => (
-          <div className={`hit-confirmation ${item.kind}`} key={item.id}>
+      {hasDamageFlash ? <div className="damage-flash" /> : null}
+      <div className="combat-message-stack">
+        {items.map((item) => (
+          <div className={`combat-message ${item.kind}`} key={item.id}>
             {item.text}
           </div>
         ))}
