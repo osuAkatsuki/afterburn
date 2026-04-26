@@ -48,7 +48,7 @@ export class DogfightScene {
   private readonly explosionSystem = new ExplosionSystem(this.scene);
   private readonly oceanSystem = new OceanSystem(this.scene);
   private readonly skySystem = new SkySystem(this.scene);
-  private readonly terrainSystem = new TerrainSystem(this.scene, this.oceanSystem);
+  private readonly terrainSystem = new TerrainSystem(this.scene);
   private readonly smokeSystem = new SmokeSystem(this.scene);
   private readonly combatEffects = new CombatEffectsSystem(
     this.explosionSystem,

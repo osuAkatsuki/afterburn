@@ -1,71 +1,100 @@
 import * as THREE from "three";
-import { TERRAIN_ISLANDS } from "../../../shared/constants.js";
-import type { TerrainIsland } from "../../../shared/constants.js";
-import { OCEAN_SYSTEM_OWNER, type OceanSystem } from "./OceanSystem.js";
+import { OCEAN_LEVEL } from "../../../shared/constants.js";
+import { sampleTerrainAt, TERRAIN_FIELD } from "../../../shared/terrainField.js";
+import type { TerrainKind, TerrainSample } from "../../../shared/terrainField.js";
+
+const TERRAIN_COLORS: Record<TerrainKind, string> = {
+  ocean: "#0c6b7f",
+  beach: "#c2aa73",
+  lowland: "#42734f",
+  highland: "#5e754d",
+  mountain: "#73746b",
+  snow: "#e8f0f2"
+};
 
 export class TerrainSystem {
-  private readonly terrainGroups: THREE.Group[] = [];
+  private terrain?: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 
-  constructor(
-    private readonly scene: THREE.Scene,
-    private readonly oceanSystem: OceanSystem
-  ) {}
+  constructor(private readonly scene: THREE.Scene) {}
 
   initialize(): void {
-    TERRAIN_ISLANDS.forEach((island) => this.createIsland(island));
+    const geometry = createTerrainGeometry();
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.94,
+      metalness: 0.02,
+      flatShading: false
+    });
+
+    this.terrain = new THREE.Mesh(geometry, material);
+    this.terrain.receiveShadow = true;
+    this.terrain.castShadow = true;
+    this.scene.add(this.terrain);
   }
 
   dispose(): void {
-    this.terrainGroups.forEach((group) => {
-      this.scene.remove(group);
-      disposeObject(group);
-    });
-    this.terrainGroups.length = 0;
-  }
+    if (!this.terrain) {
+      return;
+    }
 
-  private createIsland(island: TerrainIsland): void {
-    const group = new THREE.Group();
-    group.position.set(island.x, 0, island.z);
-
-    const beach = new THREE.Mesh(
-      new THREE.CircleGeometry(island.beachRadius, 28),
-      new THREE.MeshStandardMaterial({ color: "#c2aa73", roughness: 0.92 })
-    );
-    beach.rotation.x = -Math.PI / 2;
-    beach.position.y = 0.7;
-    beach.scale.set(island.beachScaleX, island.beachScaleZ, 1);
-    group.add(beach);
-
-    this.oceanSystem.createShoreFoam(island, group);
-
-    const terrainMaterial = new THREE.MeshStandardMaterial({ color: "#3f6f4c", roughness: 0.96 });
-    island.peaks.forEach((definition) => {
-      const peak = new THREE.Mesh(new THREE.ConeGeometry(definition.radius, definition.height, 7), terrainMaterial);
-      peak.position.set(definition.x, definition.height / 2 + 0.8, definition.z);
-      peak.castShadow = true;
-      peak.receiveShadow = true;
-      group.add(peak);
-    });
-
-    this.scene.add(group);
-    this.terrainGroups.push(group);
+    this.scene.remove(this.terrain);
+    this.terrain.geometry.dispose();
+    this.terrain.material.dispose();
+    this.terrain = undefined;
   }
 }
 
-function disposeObject(object: THREE.Object3D): void {
-  const geometries = new Set<THREE.BufferGeometry>();
-  const materials = new Set<THREE.Material>();
-  object.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      const mesh = child as THREE.Mesh;
-      if (mesh.userData.ownerSystem === OCEAN_SYSTEM_OWNER) {
-        return;
-      }
-      geometries.add(mesh.geometry);
-      const meshMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      meshMaterials.forEach((material) => materials.add(material));
+function createTerrainGeometry(): THREE.BufferGeometry {
+  const segments = TERRAIN_FIELD.renderSegments;
+  const radius = TERRAIN_FIELD.renderRadius;
+  const step = (radius * 2) / segments;
+  const samples: TerrainSample[] = [];
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  for (let zIndex = 0; zIndex <= segments; zIndex += 1) {
+    const z = -radius + zIndex * step;
+    for (let xIndex = 0; xIndex <= segments; xIndex += 1) {
+      const x = -radius + xIndex * step;
+      const sample = sampleTerrainAt(x, z);
+      const height = sample.kind === "ocean" ? OCEAN_LEVEL - 0.08 : sample.height;
+      samples.push(sample);
+      positions.push(x, height, z);
+      pushTerrainColor(colors, sample);
     }
-  });
-  geometries.forEach((geometry) => geometry.dispose());
-  materials.forEach((material) => material.dispose());
+  }
+
+  const row = segments + 1;
+  for (let zIndex = 0; zIndex < segments; zIndex += 1) {
+    for (let xIndex = 0; xIndex < segments; xIndex += 1) {
+      const a = zIndex * row + xIndex;
+      const b = a + 1;
+      const c = a + row;
+      const d = c + 1;
+      if (isOceanCell(samples[a], samples[b], samples[c], samples[d])) {
+        continue;
+      }
+
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function isOceanCell(a: TerrainSample, b: TerrainSample, c: TerrainSample, d: TerrainSample): boolean {
+  return [a, b, c, d].every((sample) => sample.kind === "ocean");
+}
+
+function pushTerrainColor(colors: number[], sample: TerrainSample): void {
+  const base = new THREE.Color(TERRAIN_COLORS[sample.kind]);
+  const shade = THREE.MathUtils.clamp(0.82 + sample.slope * 0.28 + sample.land * 0.08, 0.72, 1.16);
+  base.multiplyScalar(shade);
+  colors.push(base.r, base.g, base.b);
 }

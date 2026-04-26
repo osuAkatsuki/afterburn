@@ -1,10 +1,11 @@
 import * as THREE from "three";
-import { ARENA_RADIUS, TERRAIN_ISLANDS } from "../../../shared/constants.js";
-import type { TerrainIsland } from "../../../shared/constants.js";
+import { ARENA_RADIUS } from "../../../shared/constants.js";
+import { sampleTerrainAt, shoreDampingAt, terrainLandAt } from "../../../shared/terrainField.js";
 import { OCEAN_VISUAL_CONFIG } from "./oceanVisualConfig.js";
 
 type ShoreFoam = {
-  mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  origin: THREE.Vector3;
+  rotation: number;
   baseScaleX: number;
   baseScaleZ: number;
   phase: number;
@@ -21,11 +22,14 @@ type WaterGlint = {
   baseOpacity: number;
 };
 
-export const OCEAN_SYSTEM_OWNER = "OceanSystem";
-
 export class OceanSystem {
   private readonly shoreFoams: ShoreFoam[] = [];
   private readonly waterGlints: WaterGlint[] = [];
+  private readonly shoreFoamMatrix = new THREE.Matrix4();
+  private readonly shoreFoamQuaternion = new THREE.Quaternion();
+  private readonly shoreFoamPosition = new THREE.Vector3();
+  private readonly shoreFoamScale = new THREE.Vector3();
+  private readonly shoreFoamEuler = new THREE.Euler();
   private readonly waterGlintMatrix = new THREE.Matrix4();
   private readonly waterGlintQuaternion = new THREE.Quaternion();
   private readonly waterGlintPosition = new THREE.Vector3();
@@ -37,6 +41,7 @@ export class OceanSystem {
   );
   private ocean?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
   private oceanBasePositions?: Float32Array;
+  private shoreFoamMesh?: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private waterGlintMesh?: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private oceanNormalFrame = 0;
 
@@ -44,6 +49,7 @@ export class OceanSystem {
 
   initialize(): void {
     this.createOcean();
+    this.createShoreFoam();
     this.createWaterGlints();
   }
 
@@ -51,34 +57,6 @@ export class OceanSystem {
     this.updateOcean(now);
     this.updateShoreFoam(now);
     this.updateWaterGlints(now);
-  }
-
-  createShoreFoam(island: TerrainIsland, group: THREE.Group): void {
-    const foam = new THREE.Mesh(
-      new THREE.RingGeometry(
-        island.beachRadius * OCEAN_VISUAL_CONFIG.shoreFoam.innerRadiusScale,
-        island.beachRadius * OCEAN_VISUAL_CONFIG.shoreFoam.outerRadiusScale,
-        OCEAN_VISUAL_CONFIG.shoreFoam.segments
-      ),
-      new THREE.MeshBasicMaterial({
-        color: OCEAN_VISUAL_CONFIG.shoreFoam.color,
-        transparent: true,
-        opacity: 0.15,
-        depthWrite: false
-      })
-    );
-    foam.rotation.x = -Math.PI / 2;
-    foam.position.y = OCEAN_VISUAL_CONFIG.shoreFoam.positionY;
-    foam.scale.set(island.beachScaleX, island.beachScaleZ, 1);
-    foam.renderOrder = 1;
-    foam.userData.ownerSystem = OCEAN_SYSTEM_OWNER;
-    group.add(foam);
-    this.shoreFoams.push({
-      mesh: foam,
-      baseScaleX: island.beachScaleX,
-      baseScaleZ: island.beachScaleZ,
-      phase: island.x * 0.003 + island.z * 0.005
-    });
   }
 
   getWaterGlintCount(): number {
@@ -93,17 +71,18 @@ export class OceanSystem {
       this.ocean = undefined;
       this.oceanBasePositions = undefined;
     }
+    if (this.shoreFoamMesh) {
+      this.scene.remove(this.shoreFoamMesh);
+      this.shoreFoamMesh.geometry.dispose();
+      this.shoreFoamMesh.material.dispose();
+      this.shoreFoamMesh = undefined;
+    }
     if (this.waterGlintMesh) {
       this.scene.remove(this.waterGlintMesh);
       this.waterGlintMesh.geometry.dispose();
       this.waterGlintMesh.material.dispose();
       this.waterGlintMesh = undefined;
     }
-    this.shoreFoams.forEach((foam) => {
-      foam.mesh.parent?.remove(foam.mesh);
-      foam.mesh.geometry.dispose();
-      foam.mesh.material.dispose();
-    });
     this.shoreFoams.length = 0;
     this.waterGlints.length = 0;
   }
@@ -166,6 +145,58 @@ export class OceanSystem {
     geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   }
 
+  private createShoreFoam(): void {
+    const material = new THREE.MeshBasicMaterial({
+      color: OCEAN_VISUAL_CONFIG.shoreFoam.color,
+      transparent: true,
+      opacity: 0.15,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+    const mesh = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(OCEAN_VISUAL_CONFIG.shoreFoam.patchSize, OCEAN_VISUAL_CONFIG.shoreFoam.patchSize),
+      material,
+      OCEAN_VISUAL_CONFIG.shoreFoam.maxPatchCount
+    );
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.renderOrder = 1;
+    this.shoreFoamMesh = mesh;
+    this.scene.add(mesh);
+
+    const radius = ARENA_RADIUS * 0.98;
+    const spacing = OCEAN_VISUAL_CONFIG.shoreFoam.scanSpacing;
+    for (let z = -radius; z <= radius; z += spacing) {
+      for (let x = -radius; x <= radius; x += spacing) {
+        if (this.shoreFoams.length >= OCEAN_VISUAL_CONFIG.shoreFoam.maxPatchCount) {
+          break;
+        }
+
+        const sample = sampleTerrainAt(x, z);
+        if (sample.kind !== "ocean") {
+          continue;
+        }
+
+        const landDelta = shorelineGradientLength(x, z);
+        if (landDelta < OCEAN_VISUAL_CONFIG.shoreFoam.minWaterLandDelta || this.shoreDamping(x, z) > 0.42) {
+          continue;
+        }
+
+        const gradient = shorelineGradient(x, z);
+        const rotation = Math.atan2(gradient.z, gradient.x) + Math.PI / 2;
+        this.shoreFoams.push({
+          origin: new THREE.Vector3(x, OCEAN_VISUAL_CONFIG.shoreFoam.positionY, z),
+          rotation,
+          baseScaleX: OCEAN_VISUAL_CONFIG.shoreFoam.minLength + Math.random() * OCEAN_VISUAL_CONFIG.shoreFoam.lengthSpread,
+          baseScaleZ: OCEAN_VISUAL_CONFIG.shoreFoam.minWidth + Math.random() * OCEAN_VISUAL_CONFIG.shoreFoam.widthSpread,
+          phase: x * 0.003 + z * 0.005
+        });
+      }
+    }
+
+    mesh.count = this.shoreFoams.length;
+    this.updateShoreFoam(0);
+  }
+
   private createWaterGlints(): void {
     const material = new THREE.MeshBasicMaterial({
       color: OCEAN_VISUAL_CONFIG.waterGlints.color,
@@ -189,6 +220,10 @@ export class OceanSystem {
         Math.random() * ARENA_RADIUS * OCEAN_VISUAL_CONFIG.waterGlints.arenaRadiusScale;
       const x = Math.sin(angle) * radius;
       const z = Math.cos(angle) * radius;
+      if (sampleTerrainAt(x, z).kind !== "ocean") {
+        continue;
+      }
+
       if (this.shoreDamping(x, z) < OCEAN_VISUAL_CONFIG.waterGlints.shoreDampingMinimum) {
         continue;
       }
@@ -263,16 +298,26 @@ export class OceanSystem {
   }
 
   private updateShoreFoam(now: number): void {
+    const mesh = this.shoreFoamMesh;
+    if (!mesh) {
+      return;
+    }
+
     const t = now * 0.001;
-    this.shoreFoams.forEach((foam) => {
+    this.shoreFoams.forEach((foam, index) => {
       const pulse =
         1 + Math.sin(t * OCEAN_VISUAL_CONFIG.shoreFoam.pulseFrequency + foam.phase) * OCEAN_VISUAL_CONFIG.shoreFoam.pulseAmplitude;
-      foam.mesh.scale.set(foam.baseScaleX * pulse, foam.baseScaleZ * pulse, 1);
-      foam.mesh.material.opacity =
-        OCEAN_VISUAL_CONFIG.shoreFoam.baseOpacity +
-        (Math.sin(t * OCEAN_VISUAL_CONFIG.shoreFoam.opacityFrequency + foam.phase) + 1) *
-          OCEAN_VISUAL_CONFIG.shoreFoam.opacityAmplitude;
+      this.shoreFoamPosition.copy(foam.origin);
+      this.shoreFoamEuler.set(-Math.PI / 2, 0, foam.rotation);
+      this.shoreFoamQuaternion.setFromEuler(this.shoreFoamEuler);
+      this.shoreFoamScale.set(foam.baseScaleX * pulse, foam.baseScaleZ * pulse, 1);
+      this.shoreFoamMatrix.compose(this.shoreFoamPosition, this.shoreFoamQuaternion, this.shoreFoamScale);
+      mesh.setMatrixAt(index, this.shoreFoamMatrix);
     });
+    mesh.material.opacity =
+      OCEAN_VISUAL_CONFIG.shoreFoam.baseOpacity +
+      (Math.sin(t * OCEAN_VISUAL_CONFIG.shoreFoam.opacityFrequency) + 1) * OCEAN_VISUAL_CONFIG.shoreFoam.opacityAmplitude;
+    mesh.instanceMatrix.needsUpdate = true;
   }
 
   private updateWaterGlints(now: number): void {
@@ -302,35 +347,19 @@ export class OceanSystem {
   }
 
   private shoreDamping(worldX: number, worldZ: number): number {
-    let damping = 1;
-    for (let i = 0; i < TERRAIN_ISLANDS.length; i += 1) {
-      const island = TERRAIN_ISLANDS[i];
-      const localX = worldX - island.x;
-      const localZ = worldZ - island.z;
-      const shoreX = island.beachRadius * island.beachScaleX;
-      const shoreZ = island.beachRadius * island.beachScaleZ;
-      if (
-        Math.abs(localX) > shoreX * OCEAN_VISUAL_CONFIG.shoreDamping.outerScale ||
-        Math.abs(localZ) > shoreZ * OCEAN_VISUAL_CONFIG.shoreDamping.outerScale
-      ) {
-        continue;
-      }
-
-      const normalizedX = localX / shoreX;
-      const normalizedZ = localZ / shoreZ;
-      const shorelineDistance = Math.hypot(normalizedX, normalizedZ);
-      if (shorelineDistance < OCEAN_VISUAL_CONFIG.shoreDamping.fadeEnd) {
-        damping = Math.min(
-          damping,
-          smoothstep(OCEAN_VISUAL_CONFIG.shoreDamping.fadeStart, OCEAN_VISUAL_CONFIG.shoreDamping.fadeEnd, shorelineDistance)
-        );
-      }
-    }
-    return damping;
+    return shoreDampingAt(worldX, worldZ);
   }
 }
 
-function smoothstep(edge0: number, edge1: number, value: number): number {
-  const t = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
+function shorelineGradient(x: number, z: number): { x: number; z: number } {
+  const step = OCEAN_VISUAL_CONFIG.shoreFoam.gradientStep;
+  return {
+    x: terrainLandAt(x + step, z) - terrainLandAt(x - step, z),
+    z: terrainLandAt(x, z + step) - terrainLandAt(x, z - step)
+  };
+}
+
+function shorelineGradientLength(x: number, z: number): number {
+  const gradient = shorelineGradient(x, z);
+  return Math.hypot(gradient.x, gradient.z);
 }

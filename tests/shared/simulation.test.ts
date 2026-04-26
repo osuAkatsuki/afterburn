@@ -40,10 +40,10 @@ import {
   SPAWN_PROTECTION_MS,
   SPAWN_RING_MAX,
   SPAWN_RING_MIN,
+  SPAWN_TERRAIN_CLEARANCE,
   SPEED_UNIT,
   TICK_RATE,
-  TERRAIN_COLLISION_MARGIN,
-  TERRAIN_ISLANDS
+  TERRAIN_COLLISION_MARGIN
 } from "../../src/shared/constants.js";
 import {
   addPlayerToRoom,
@@ -58,6 +58,8 @@ import {
 } from "../../src/shared/simulation.js";
 import { distance, dot, forwardVector, length, normalize, quaternionFromRotation, scale, subtract } from "../../src/shared/math.js";
 import { isTerrainImpact, terrainHeightAt } from "../../src/shared/terrain.js";
+import { TERRAIN_FIELD } from "../../src/shared/terrainField.js";
+import type { TerrainKind } from "../../src/shared/terrainField.js";
 import type { PlayerState, ProjectileState, Rotation } from "../../src/shared/types.js";
 
 function twoPlayerRoom(now = 1000) {
@@ -92,6 +94,28 @@ function setRotation(player: PlayerState, rotation: Rotation) {
   player.velocity = scale(forwardVector(rotation), MAX_SPEED);
 }
 
+function findTerrainSample(predicate: (kind: TerrainKind) => boolean) {
+  let best: { x: number; z: number; terrain: ReturnType<typeof terrainHeightAt> } | undefined;
+  for (let z = -ARENA_RADIUS * 0.92; z <= ARENA_RADIUS * 0.92; z += 70) {
+    for (let x = -ARENA_RADIUS * 0.92; x <= ARENA_RADIUS * 0.92; x += 70) {
+      const terrain = terrainHeightAt(x, z);
+      if (!predicate(terrain.kind)) {
+        continue;
+      }
+
+      if (!best || terrain.height > best.terrain.height) {
+        best = { x, z, terrain };
+      }
+    }
+  }
+
+  if (!best) {
+    throw new Error("Expected procedural terrain sample was not found");
+  }
+
+  return best;
+}
+
 describe("shared simulation", () => {
   it("keeps weapon and aircraft speeds on the requested ratios", () => {
     expect(MAX_SPEED).toBe(SPEED_UNIT * 1.5);
@@ -119,15 +143,8 @@ describe("shared simulation", () => {
     expect(MAX_ALTITUDE).toBe(1800);
     expect(ARENA_RADIUS).toBeGreaterThan(SPAWN_RING_MAX * 2);
     expect(ARENA_RADIUS).toBeGreaterThan(GUN_CONVERGENCE_DISTANCE * 4);
-
-    const outermostTerrain = Math.max(
-      ...TERRAIN_ISLANDS.map((island) => {
-        const islandRadius = Math.max(island.beachRadius * island.beachScaleX, island.beachRadius * island.beachScaleZ);
-        return Math.hypot(island.x, island.z) + islandRadius;
-      })
-    );
-
-    expect(outermostTerrain).toBeLessThan(ARENA_RADIUS);
+    expect(TERRAIN_FIELD.renderRadius).toBeGreaterThanOrEqual(ARENA_RADIUS);
+    expect(TERRAIN_FIELD.renderRadius).toBeLessThan(ARENA_RADIUS * 1.1);
   });
 
   it("spawns aircraft on a wider staggered ring facing roughly inward", () => {
@@ -144,6 +161,8 @@ describe("shared simulation", () => {
       expect(spawn.position.y).toBeLessThanOrEqual(SPAWN_ALTITUDE_MAX);
       expect(dot(normalize({ x: forward.x, y: 0, z: forward.z }), towardCenter)).toBeGreaterThan(0.94);
       expect(terrain.kind).not.toBe("mountain");
+      expect(terrain.kind).not.toBe("snow");
+      expect(spawn.position.y).toBeGreaterThanOrEqual(terrain.height + SPAWN_TERRAIN_CLEARANCE);
     }
   });
 
@@ -318,13 +337,9 @@ describe("shared simulation", () => {
   it("crashes aircraft on mountain impact", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
-    const island = TERRAIN_ISLANDS[0];
-    const peak = island.peaks[0];
-    const x = island.x + peak.x;
-    const z = island.z + peak.z;
-    const terrain = terrainHeightAt(x, z);
+    const { x, z, terrain } = findTerrainSample((kind) => kind === "mountain" || kind === "snow");
 
-    expect(terrain.kind).toBe("mountain");
+    expect(["mountain", "snow"]).toContain(terrain.kind);
     player.position = { x, y: terrain.height + TERRAIN_COLLISION_MARGIN - 0.1, z };
     const events = stepRoom(room, 0, 1050);
 

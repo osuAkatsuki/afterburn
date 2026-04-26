@@ -44,21 +44,22 @@ export const OCEAN_VISUAL_CONFIG = {
     { xFrequency: 0.018, localYFrequency: -0.011, timeFrequency: 2.15, amplitude: 0.28 },
     { xFrequency: 0.031, localYFrequency: 0.027, timeFrequency: -2.85, amplitude: 0.1 }
   ],
-  shoreDamping: {
-    outerScale: 1.34,
-    fadeStart: 0.98,
-    fadeEnd: 1.34
-  },
   shoreFoam: {
-    innerRadiusScale: 1.005,
-    outerRadiusScale: 1.055,
-    segments: 96,
+    patchSize: 1,
+    scanSpacing: 105,
+    maxPatchCount: 260,
+    minWaterLandDelta: 0.08,
+    gradientStep: 42,
     color: "#d9fbff",
     baseOpacity: 0.1,
     opacityAmplitude: 0.035,
     pulseAmplitude: 0.012,
     pulseFrequency: 1.35,
     opacityFrequency: 1.8,
+    minLength: 34,
+    lengthSpread: 34,
+    minWidth: 3.2,
+    widthSpread: 3.6,
     positionY: 0.18
   },
   waterGlints: {
