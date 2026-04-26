@@ -74,7 +74,7 @@ describe("combat feedback", () => {
     expect(combatFeedbackItemsForNotice(killNotice, "p2", {}).map((item) => item.text)).toEqual(["DESTROYED"]);
   });
 
-  it("suppresses lethal damage numbers when destruction is shown in the same batch", () => {
+  it("keeps lethal damage and destruction visible for stacked victim feedback", () => {
     const notices: CombatNotice[] = [
       {
         id: 1,
@@ -98,7 +98,7 @@ describe("combat feedback", () => {
       }
     ];
 
-    expect(combatFeedbackItemsForNotices(notices, "p2", {}).map((item) => item.text)).toEqual(["DESTROYED"]);
+    expect(combatFeedbackItemsForNotices(notices, "p2", {}).map((item) => item.text)).toEqual(["-70", "DESTROYED"]);
     expect(combatFeedbackItemsForNotices(notices, "p1", { p2: "Bandit" }).map((item) => item.text)).toEqual([
       "HIT Bandit +70",
       "KILL Bandit"
