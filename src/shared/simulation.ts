@@ -64,7 +64,7 @@ import {
   aircraftIntersectsAircraft,
   aircraftTerrainProbePoints,
   closestProjectileToAircraftAirframe,
-  closestProjectileToAircraftFuselage,
+  closestProjectileToAircraftBulletDamage,
   distanceToAircraftAirframe
 } from "./hitShapes.js";
 import {
@@ -972,7 +972,7 @@ function findBulletHit(room: RoomState, projectile: ProjectileState, previousPos
   return Object.values(room.players)
     .filter((player) => player.id !== projectile.ownerId && player.status === "alive" && !isPlayerSpawnProtected(player, now))
     .map((player) => {
-      const closest = closestProjectileToAircraftFuselage(previousPosition, projectile.position, player);
+      const closest = closestProjectileToAircraftBulletDamage(previousPosition, projectile.position, player);
       return { player, clearance: closest.clearance, segmentT: closest.segmentT };
     })
     .filter(({ clearance }) => clearance <= BULLET_HIT_RADIUS)

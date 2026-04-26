@@ -58,6 +58,7 @@ import {
 } from "../../src/shared/simulation.js";
 import { distance, dot, forwardVector, length, normalize, quaternionFromRotation, scale, subtract } from "../../src/shared/math.js";
 import { isTerrainImpact, terrainHeightAt } from "../../src/shared/terrain.js";
+import { AIRFRAME_BULLET_BOXES, closestProjectileToAircraftBulletDamage } from "../../src/shared/hitShapes.js";
 import type { PlayerState, ProjectileState, Rotation } from "../../src/shared/types.js";
 
 function twoPlayerRoom(now = 1000) {
@@ -521,7 +522,7 @@ describe("shared simulation", () => {
 
     attacker.position = { x: 0, y: 120, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    victim.position = { x: -11.2, y: 120, z: 80 };
+    victim.position = { x: -11.2, y: 125, z: 80 };
     setRotation(victim, { pitch: 0, yaw: 0, roll: 0 });
     victim.health = 12;
 
@@ -530,6 +531,75 @@ describe("shared simulation", () => {
 
     expect(events.some((event) => event.type === "hit")).toBe(false);
     expect(victim.health).toBe(12);
+  });
+
+  it("counts gun hits against the visible wing and tail damage surfaces", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    const victim = room.players.p2;
+    attacker.position = { x: 0, y: 160, z: 0 };
+    victim.position = { x: 0, y: 160, z: 80 };
+    setRotation(victim, { pitch: 0, yaw: 0, roll: 0 });
+    victim.health = PLAYER_HEALTH;
+
+    room.projectiles["wing-hit"] = {
+      id: "wing-hit",
+      type: "bullet",
+      ownerId: attacker.id,
+      position: { x: -10, y: 159.8, z: 72 },
+      velocity: { x: 0, y: 0, z: BULLET_SPEED },
+      ttl: 1,
+      damage: 12,
+      createdAt: 1000
+    };
+
+    const events = stepRoom(room, 1 / 120, 1050);
+
+    expect(events).toContainEqual({
+      type: "hit",
+      roomId: room.id,
+      attackerId: attacker.id,
+      victimId: victim.id,
+      damage: 12,
+      weapon: "bullet"
+    });
+    expect(victim.health).toBe(PLAYER_HEALTH - 12);
+    expect(room.projectiles["wing-hit"]).toBeUndefined();
+  });
+
+  it("does not inflate gun hits outside the visible wing surface", () => {
+    const victim = createPlayer("p2", "Viper", 1, 1000);
+    victim.position = { x: 0, y: 160, z: 80 };
+    setRotation(victim, { pitch: 0, yaw: 0, roll: 0 });
+
+    const closest = closestProjectileToAircraftBulletDamage(
+      { x: -10, y: 161.2, z: 72 },
+      { x: -10, y: 161.2, z: 88 },
+      victim
+    );
+
+    expect(closest.clearance).toBeGreaterThan(BULLET_HIT_RADIUS);
+  });
+
+  it("defines named gun damage boxes for wings and control surfaces", () => {
+    expect(AIRFRAME_BULLET_BOXES.map((box) => box.name)).toEqual([
+      "leftWingRoot",
+      "rightWingRoot",
+      "leftMainWing",
+      "rightMainWing",
+      "leftWingtipAccent",
+      "rightWingtipAccent",
+      "leftAileron",
+      "rightAileron",
+      "leftTailplane",
+      "rightTailplane",
+      "leftElevator",
+      "rightElevator",
+      "leftVerticalFin",
+      "rightVerticalFin",
+      "leftRudder",
+      "rightRudder"
+    ]);
   });
 
   it("fires guns from alternating muzzles converging toward the nose aim point", () => {

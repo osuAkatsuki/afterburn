@@ -4,6 +4,7 @@ import { EndScreen } from "./components/EndScreen.js";
 import { CombatFeedback } from "./components/CombatFeedback.js";
 import { FlightDirector } from "./components/FlightDirector.js";
 import { GameCanvas, type ClientDebugStats } from "./components/GameCanvas.js";
+import { HitboxQaCanvas } from "./components/HitboxQaCanvas.js";
 import { Hud } from "./components/Hud.js";
 import { Lobby } from "./components/Lobby.js";
 import { Radar } from "./components/Radar.js";
@@ -18,9 +19,15 @@ import { ClientWorldPresenter } from "./net/ClientWorldPresenter.js";
 import { getSnapshotInterpolationDelayMs } from "./net/SnapshotBuffer.js";
 import type { BotSkill } from "../shared/types.js";
 
-const urlRoom = new URLSearchParams(window.location.search).get("room")?.toUpperCase() ?? "";
+const urlParams = new URLSearchParams(window.location.search);
+const urlRoom = urlParams.get("room")?.toUpperCase() ?? "";
+const hitboxQaEnabled = urlParams.has("hitboxQa");
 
 export function App() {
+  if (hitboxQaEnabled) {
+    return <HitboxQaCanvas />;
+  }
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reticleRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
