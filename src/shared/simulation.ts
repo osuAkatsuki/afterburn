@@ -37,6 +37,7 @@ import {
   MISSILE_MIN_BLAST_DAMAGE,
   MISSILE_NAVIGATION_CONSTANT,
   MISSILE_PROXIMITY_RADIUS,
+  MISSILE_SEEKER_GIMBAL_DOT,
   MISSILE_SEEKER_GATE_DOT,
   MISSILE_SPEED,
   MISSILE_TTL_SECONDS,
@@ -584,6 +585,16 @@ function playerForward(player: PlayerState): Vec3 {
   return normalize(applyQuaternion({ x: 0, y: 0, z: 1 }, player.orientation ?? quaternionFromRotation(player.rotation)));
 }
 
+function missileSeekerForward(player: PlayerState): Vec3 | undefined {
+  const aimDirection = player.input.aimDirection;
+  if (!aimDirection) {
+    return undefined;
+  }
+
+  const forward = playerForward(player);
+  return dot(forward, aimDirection) >= MISSILE_SEEKER_GIMBAL_DOT ? aimDirection : forward;
+}
+
 function fireGun(room: RoomState, player: PlayerState, now: number, events: CombatEvent[]): void {
   const forward = playerForward(player);
   const orientation = player.orientation ?? quaternionFromRotation(player.rotation);
@@ -665,11 +676,18 @@ function fireFlare(room: RoomState, player: PlayerState, now: number, events: Co
 }
 
 function updateMissileLock(room: RoomState, player: PlayerState, dt: number, now: number): void {
+  const seekerDirection = missileSeekerForward(player);
+  if (!seekerDirection) {
+    clearMissileLock(player);
+    return;
+  }
+
   const currentTarget =
-    player.missileLockTargetId && isLockValid(room, player, player.missileLockTargetId, MISSILE_LOCK_BREAK_DOT, now)
+    player.missileLockTargetId &&
+    isLockValid(room, player, player.missileLockTargetId, seekerDirection, MISSILE_LOCK_BREAK_DOT, now)
       ? room.players[player.missileLockTargetId]
       : undefined;
-  const target = currentTarget ?? findMissileLockCandidate(room, player, MISSILE_LOCK_DOT, now);
+  const target = currentTarget ?? findMissileLockCandidate(room, player, seekerDirection, MISSILE_LOCK_DOT, now);
 
   if (!target) {
     clearMissileLock(player);
@@ -692,7 +710,14 @@ function clearMissileLock(player: PlayerState): void {
   player.missileLockAcquired = false;
 }
 
-function isLockValid(room: RoomState, player: PlayerState, targetId: string, requiredDot: number, now: number): boolean {
+function isLockValid(
+  room: RoomState,
+  player: PlayerState,
+  targetId: string,
+  seekerDirection: Vec3,
+  requiredDot: number,
+  now: number
+): boolean {
   const target = room.players[targetId];
   if (!target || target.id === player.id || target.status !== "alive" || isPlayerSpawnProtected(target, now)) {
     return false;
@@ -704,18 +729,22 @@ function isLockValid(room: RoomState, player: PlayerState, targetId: string, req
     return false;
   }
 
-  return dot(playerForward(player), normalize(offset)) >= requiredDot;
+  return dot(seekerDirection, normalize(offset)) >= requiredDot;
 }
 
-function findMissileLockCandidate(room: RoomState, player: PlayerState, requiredDot: number, now: number): PlayerState | undefined {
-  const forward = playerForward(player);
-
+function findMissileLockCandidate(
+  room: RoomState,
+  player: PlayerState,
+  seekerDirection: Vec3,
+  requiredDot: number,
+  now: number
+): PlayerState | undefined {
   return Object.values(room.players)
     .filter((candidate) => candidate.id !== player.id && candidate.status === "alive" && !isPlayerSpawnProtected(candidate, now))
     .map((candidate) => {
       const offset = subtract(candidate.position, player.position);
       const range = distance(candidate.position, player.position);
-      const lock = dot(forward, normalize(offset));
+      const lock = dot(seekerDirection, normalize(offset));
       return { candidate, range, lock };
     })
     .filter(({ range, lock }) => range <= MISSILE_LOCK_RANGE && lock >= requiredDot)

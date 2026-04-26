@@ -29,6 +29,7 @@ import {
   MISSILE_HIT_RADIUS,
   MISSILE_NAVIGATION_CONSTANT,
   MISSILE_PROXIMITY_RADIUS,
+  MISSILE_SEEKER_GIMBAL_DOT,
   MISSILE_SEEKER_GATE_DOT,
   MISSILE_SPEED,
   MISSILE_TTL_SECONDS,
@@ -77,12 +78,17 @@ function clearSpawnProtectionForTest(room: ReturnType<typeof createRoomState>) {
   });
 }
 
-function holdLock(room: ReturnType<typeof twoPlayerRoom>, attackerId = "p1") {
+function directionToTarget(attacker: PlayerState, target: PlayerState) {
+  return normalize(subtract(target.position, attacker.position));
+}
+
+function holdLock(room: ReturnType<typeof twoPlayerRoom>, attackerId = "p1", targetId = "p2") {
   const attacker = room.players[attackerId];
+  const target = room.players[targetId];
   const steps = Math.ceil(MISSILE_LOCK_SECONDS / 0.1) + 1;
 
   for (let i = 0; i < steps; i += 1) {
-    setPlayerInput(attacker, { seq: i + 1 });
+    setPlayerInput(attacker, { seq: i + 1, aimDirection: target ? directionToTarget(attacker, target) : undefined });
     stepRoom(room, 0.1, 1100 + i * 100);
   }
 }
@@ -901,7 +907,7 @@ describe("shared simulation", () => {
     holdLock(room);
     expect(attacker.missileLockAcquired).toBe(true);
 
-    setPlayerInput(attacker, { seq: 20, fireMissile: true });
+    setPlayerInput(attacker, { seq: 20, aimDirection: directionToTarget(attacker, target), fireMissile: true });
     stepRoom(room, 1 / 30, 2400);
 
     const missile = Object.values(room.projectiles).find((projectile) => projectile.type === "missile" && projectile.targetId === "p2");
@@ -931,13 +937,13 @@ describe("shared simulation", () => {
       y: attacker.position.y,
       z: attacker.position.z
     };
-    setPlayerInput(attacker, { seq: 40 });
+    setPlayerInput(attacker, { seq: 40, aimDirection: directionToTarget(attacker, target) });
     stepRoom(room, 0.1, room.now + 100);
 
     expect(attacker.missileLockTargetId).toBeUndefined();
   });
 
-  it("keeps missile locks and dumbfire launches tied to the aircraft nose", () => {
+  it("uses cursor aim inside the seeker gimbal while launches still leave the aircraft nose", () => {
     const room = twoPlayerRoom();
     const attacker = room.players.p1;
     const target = room.players.p2;
@@ -950,21 +956,64 @@ describe("shared simulation", () => {
     const targetDirection = normalize(subtract(target.position, attacker.position));
     const noseForward = forwardVector(attacker.rotation);
     expect(dot(targetDirection, noseForward)).toBeLessThan(MISSILE_LOCK_DOT);
+    expect(dot(targetDirection, noseForward)).toBeGreaterThan(MISSILE_SEEKER_GIMBAL_DOT);
 
     for (let i = 0; i < Math.ceil(MISSILE_LOCK_SECONDS / 0.1) + 1; i += 1) {
       setPlayerInput(attacker, { seq: i + 1, aimDirection: targetDirection });
       stepRoom(room, 0.1, 1100 + i * 100);
     }
 
-    expect(attacker.missileLockAcquired).toBe(false);
-    expect(attacker.missileLockTargetId).toBeUndefined();
+    expect(attacker.missileLockAcquired).toBe(true);
+    expect(attacker.missileLockTargetId).toBe(target.id);
 
     setPlayerInput(attacker, { seq: 80, aimDirection: targetDirection, fireMissile: true });
     stepRoom(room, 0, room.now + 100);
 
     const missile = Object.values(room.projectiles).find((projectile) => projectile.type === "missile" && projectile.ownerId === attacker.id);
-    expect(missile?.targetId).toBeUndefined();
+    expect(missile?.targetId).toBe(target.id);
     expect(dot(normalize(missile?.velocity ?? { x: 0, y: 0, z: 0 }), noseForward)).toBeGreaterThan(0.99);
+  });
+
+  it("clears missile locks while free look omits cursor aim", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    const target = room.players.p2;
+
+    attacker.position = { x: 0, y: 260, z: 0 };
+    setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
+    target.position = { x: 700, y: 260, z: 3000 };
+    setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
+
+    holdLock(room);
+    expect(attacker.missileLockAcquired).toBe(true);
+
+    setPlayerInput(attacker, { seq: 80 });
+    stepRoom(room, 0.1, room.now + 100);
+
+    expect(attacker.missileLockTargetId).toBeUndefined();
+    expect(attacker.missileLockAcquired).toBe(false);
+  });
+
+  it("falls back to nose locks when cursor aim is outside the seeker gimbal", () => {
+    const room = twoPlayerRoom();
+    const attacker = room.players.p1;
+    const target = room.players.p2;
+
+    attacker.position = { x: 0, y: 260, z: 0 };
+    setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
+    target.position = { x: 0, y: 260, z: 3000 };
+    setRotation(target, { pitch: 0, yaw: Math.PI, roll: 0 });
+
+    const outsideGimbal = normalize({ x: 3000, y: 0, z: 1000 });
+    expect(dot(outsideGimbal, forwardVector(attacker.rotation))).toBeLessThan(MISSILE_SEEKER_GIMBAL_DOT);
+
+    for (let i = 0; i < Math.ceil(MISSILE_LOCK_SECONDS / 0.1) + 1; i += 1) {
+      setPlayerInput(attacker, { seq: i + 1, aimDirection: outsideGimbal });
+      stepRoom(room, 0.1, 1100 + i * 100);
+    }
+
+    expect(attacker.missileLockTargetId).toBe(target.id);
+    expect(attacker.missileLockAcquired).toBe(true);
   });
 
   it("uses a narrow lock cone and a tight break cone", () => {
@@ -985,7 +1034,12 @@ describe("shared simulation", () => {
     const offNoseDot = dot(normalize({ x: target.position.x, y: 0, z: target.position.z }), { x: 0, y: 0, z: 1 });
     expect(offNoseDot).toBeLessThan(MISSILE_LOCK_DOT);
 
-    holdLock(room);
+    const noseForward = forwardVector(attacker.rotation);
+    for (let i = 0; i < Math.ceil(MISSILE_LOCK_SECONDS / 0.1) + 1; i += 1) {
+      setPlayerInput(attacker, { seq: i + 1, aimDirection: noseForward });
+      stepRoom(room, 0.1, 1100 + i * 100);
+    }
+
     expect(attacker.missileLockAcquired).toBe(false);
   });
 
@@ -1097,7 +1151,7 @@ describe("shared simulation", () => {
     expect(attacker.missileLockAcquired).toBe(true);
 
     target.position = { x: 500, y: 160, z: 0 };
-    setPlayerInput(attacker, { seq: 20 });
+    setPlayerInput(attacker, { seq: 20, aimDirection: forwardVector(attacker.rotation) });
     stepRoom(room, 0.1, 2400);
 
     expect(attacker.missileLockTargetId).toBeUndefined();
