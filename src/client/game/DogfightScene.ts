@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import type { RoomState } from "../../shared/types.js";
 import { ChaseCamera } from "./camera/ChaseCamera.js";
+import type { CameraLookInput } from "../hooks/useFlightInput.js";
+import {
+  computeMouseAimInstructorAxes,
+  type FlightAxes,
+  type MouseAimPoint
+} from "../input/mouseAimInstructor.js";
 import { JetRenderer } from "./entities/JetRenderer.js";
 import { ProjectileRenderer } from "./entities/ProjectileRenderer.js";
 import { CombatEffectsSystem } from "./effects/CombatEffectsSystem.js";
@@ -53,6 +59,7 @@ export class DogfightScene {
   private readonly debugSize = new THREE.Vector2();
   private state: RoomState | undefined;
   private localPlayerId = "";
+  private cameraLook: CameraLookInput = { active: false, yaw: 0, pitch: 0 };
 
   private readonly resize = () => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -96,11 +103,25 @@ export class DogfightScene {
     this.combatEffects.spawnProjectileImpact(position, projectileType);
   }
 
+  setCameraLook(look: CameraLookInput): void {
+    this.cameraLook = look;
+  }
+
+  computeMouseAimAxes(aim: MouseAimPoint): FlightAxes | undefined {
+    const local = this.state?.players[this.localPlayerId];
+    const localJet = this.jetRenderer.getJet(this.localPlayerId);
+    if (!local || local.status !== "alive" || !localJet?.visible) {
+      return undefined;
+    }
+
+    return computeMouseAimInstructorAxes(aim, local.rotation.roll);
+  }
+
   render(now: number): void {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.oceanSystem.update(now);
     this.jetRenderer.update(dt, this.state, this.localPlayerId);
-    this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId));
+    this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId), this.cameraLook);
     this.skySystem.update(this.camera);
     this.reticleProjector.update(this.state, this.localPlayerId);
     this.combatEffects.update(now, dt, this.state);

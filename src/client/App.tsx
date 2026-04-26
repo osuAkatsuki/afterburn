@@ -98,6 +98,8 @@ export function App() {
     playerId,
     sendInput,
     onLocalInput: (input) => worldPresenterRef.current.recordInput(input),
+    onCameraLook: (look) => sceneRef.current?.setCameraLook(look),
+    getMouseAimAxes: (aim) => sceneRef.current?.computeMouseAimAxes(aim),
     setScoreboardVisible
   });
 
