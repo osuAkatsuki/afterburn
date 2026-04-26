@@ -1,17 +1,17 @@
 export const OCEAN_VISUAL_CONFIG = {
   surface: {
-    arenaScale: 5,
+    arenaScale: 12,
     subdivisions: 80,
     positionY: -1,
     material: {
-      color: "#0b6f86",
+      color: "#0e7892",
       roughness: 0.34,
       metalness: 0.02,
       clearcoat: 0.38,
       clearcoatRoughness: 0.36,
       reflectivity: 0.24,
-      emissive: "#063342",
-      emissiveIntensity: 0.055
+      emissive: "#0a4053",
+      emissiveIntensity: 0.07
     },
     animatedRoughness: {
       frequency: 0.21,
@@ -25,9 +25,9 @@ export const OCEAN_VISUAL_CONFIG = {
     normalRecomputeFrames: 2
   },
   vertexColor: {
-    deep: "#07586c",
-    mid: "#0d7f92",
-    shallow: "#139aac",
+    deep: "#0a596f",
+    mid: "#11879b",
+    shallow: "#28b6c1",
     baseMix: 0.48,
     nearShoreMix: 0.28,
     shallowShoreMix: 0.35,
@@ -44,25 +44,26 @@ export const OCEAN_VISUAL_CONFIG = {
     { xFrequency: 0.018, localYFrequency: -0.011, timeFrequency: 2.15, amplitude: 0.28 },
     { xFrequency: 0.031, localYFrequency: 0.027, timeFrequency: -2.85, amplitude: 0.1 }
   ],
-  shoreDamping: {
-    outerScale: 1.34,
-    fadeStart: 0.98,
-    fadeEnd: 1.34
-  },
   shoreFoam: {
-    innerRadiusScale: 1.005,
-    outerRadiusScale: 1.055,
-    segments: 96,
+    patchSize: 1,
+    scanSpacing: 95,
+    maxPatchCount: 420,
+    minWaterLandDelta: 0.08,
+    gradientStep: 42,
     color: "#d9fbff",
     baseOpacity: 0.1,
     opacityAmplitude: 0.035,
     pulseAmplitude: 0.012,
     pulseFrequency: 1.35,
     opacityFrequency: 1.8,
+    minLength: 34,
+    lengthSpread: 34,
+    minWidth: 3.2,
+    widthSpread: 3.6,
     positionY: 0.18
   },
   waterGlints: {
-    maxCount: 85,
+    maxCount: 110,
     windAngle: -0.28,
     color: "#e6fbff",
     materialOpacity: 0.08,

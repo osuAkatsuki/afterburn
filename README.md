@@ -64,6 +64,14 @@ npm test
 npm run build
 ```
 
+Terrain and sky visual QA can be captured with:
+
+```bash
+npm run terrain:qa
+```
+
+This writes screenshots and an HTML gallery to `artifacts/terrain-qa`. Use `npm run terrain:qa -- --view=sky-horizon` to capture one fixed camera view.
+
 ## Production Packaging
 
 Afterburn builds two container images:

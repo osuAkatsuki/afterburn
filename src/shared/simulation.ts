@@ -87,7 +87,7 @@ import {
   scale,
   subtract
 } from "./math.js";
-import { isOutsidePlayArea, isTerrainImpact, terrainHeightAt } from "./terrain.js";
+import { isOutsidePlayArea, isTerrainImpact, isUnsafeSpawnTerrain, terrainHeightAt } from "./terrain.js";
 import type { CombatEvent, InputFrame, PlayerState, ProjectileState, RoomState, Vec3 } from "./types.js";
 
 const palette = ["#ef4444", "#38bdf8", "#facc15", "#a78bfa", "#34d399", "#fb7185"];
@@ -332,8 +332,8 @@ function selectSpawnForPlayer(room: RoomState, playerId: string, index: number):
       Number.POSITIVE_INFINITY
     );
     const centerBias = -Math.abs(Math.hypot(spawn.position.x, spawn.position.z) - (SPAWN_RING_MIN + SPAWN_RING_MAX) / 2) * 0.08;
-    const mountainPenalty = terrain.kind === "mountain" ? -5000 : 0;
-    const score = enemyClearance + terrainPenalty + mountainPenalty + centerBias;
+    const peakPenalty = isUnsafeSpawnTerrain(terrain.kind) ? -5000 : 0;
+    const score = enemyClearance + terrainPenalty + peakPenalty + centerBias;
 
     if (score > bestScore) {
       best = spawn;
@@ -369,7 +369,7 @@ function spawnCandidate(index: number, attempt: number): { position: Vec3; rotat
 
 function isSpawnTerrainSafe(position: Vec3): boolean {
   const terrain = terrainHeightAt(position.x, position.z);
-  return terrain.kind !== "mountain" && position.y >= terrain.height + SPAWN_TERRAIN_CLEARANCE;
+  return !isUnsafeSpawnTerrain(terrain.kind) && position.y >= terrain.height + SPAWN_TERRAIN_CLEARANCE;
 }
 
 function stepPlayer(room: RoomState, player: PlayerState, dt: number, now: number, events: CombatEvent[]): void {

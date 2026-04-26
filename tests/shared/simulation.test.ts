@@ -40,10 +40,10 @@ import {
   SPAWN_PROTECTION_MS,
   SPAWN_RING_MAX,
   SPAWN_RING_MIN,
+  SPAWN_TERRAIN_CLEARANCE,
   SPEED_UNIT,
   TICK_RATE,
-  TERRAIN_COLLISION_MARGIN,
-  TERRAIN_ISLANDS
+  TERRAIN_COLLISION_MARGIN
 } from "../../src/shared/constants.js";
 import {
   addPlayerToRoom,
@@ -58,6 +58,8 @@ import {
 } from "../../src/shared/simulation.js";
 import { distance, dot, forwardVector, length, normalize, quaternionFromRotation, scale, subtract } from "../../src/shared/math.js";
 import { isTerrainImpact, terrainHeightAt } from "../../src/shared/terrain.js";
+import { TERRAIN_FIELD } from "../../src/shared/terrainField.js";
+import type { TerrainKind } from "../../src/shared/terrainField.js";
 import type { PlayerState, ProjectileState, Rotation } from "../../src/shared/types.js";
 
 function twoPlayerRoom(now = 1000) {
@@ -92,6 +94,38 @@ function setRotation(player: PlayerState, rotation: Rotation) {
   player.velocity = scale(forwardVector(rotation), MAX_SPEED);
 }
 
+function findTerrainSample(predicate: (kind: TerrainKind) => boolean) {
+  let best: { x: number; z: number; terrain: ReturnType<typeof terrainHeightAt> } | undefined;
+  for (let z = -ARENA_RADIUS * 0.92; z <= ARENA_RADIUS * 0.92; z += 70) {
+    for (let x = -ARENA_RADIUS * 0.92; x <= ARENA_RADIUS * 0.92; x += 70) {
+      const terrain = terrainHeightAt(x, z);
+      if (!predicate(terrain.kind)) {
+        continue;
+      }
+
+      if (!best || terrain.height > best.terrain.height) {
+        best = { x, z, terrain };
+      }
+    }
+  }
+
+  if (!best) {
+    throw new Error("Expected procedural terrain sample was not found");
+  }
+
+  return best;
+}
+
+function terrainClearanceY(points: Array<{ x: number; z: number }>, clearance = 260): number {
+  return (
+    Math.max(
+      ...points.map((point) => {
+        return terrainHeightAt(point.x, point.z).height;
+      })
+    ) + clearance
+  );
+}
+
 describe("shared simulation", () => {
   it("keeps weapon and aircraft speeds on the requested ratios", () => {
     expect(MAX_SPEED).toBe(SPEED_UNIT * 1.5);
@@ -119,15 +153,8 @@ describe("shared simulation", () => {
     expect(MAX_ALTITUDE).toBe(1800);
     expect(ARENA_RADIUS).toBeGreaterThan(SPAWN_RING_MAX * 2);
     expect(ARENA_RADIUS).toBeGreaterThan(GUN_CONVERGENCE_DISTANCE * 4);
-
-    const outermostTerrain = Math.max(
-      ...TERRAIN_ISLANDS.map((island) => {
-        const islandRadius = Math.max(island.beachRadius * island.beachScaleX, island.beachRadius * island.beachScaleZ);
-        return Math.hypot(island.x, island.z) + islandRadius;
-      })
-    );
-
-    expect(outermostTerrain).toBeLessThan(ARENA_RADIUS);
+    expect(TERRAIN_FIELD.renderRadius).toBeGreaterThanOrEqual(ARENA_RADIUS);
+    expect(TERRAIN_FIELD.renderRadius).toBeLessThanOrEqual(ARENA_RADIUS * 1.5);
   });
 
   it("spawns aircraft on a wider staggered ring facing roughly inward", () => {
@@ -144,6 +171,8 @@ describe("shared simulation", () => {
       expect(spawn.position.y).toBeLessThanOrEqual(SPAWN_ALTITUDE_MAX);
       expect(dot(normalize({ x: forward.x, y: 0, z: forward.z }), towardCenter)).toBeGreaterThan(0.94);
       expect(terrain.kind).not.toBe("mountain");
+      expect(terrain.kind).not.toBe("snow");
+      expect(spawn.position.y).toBeGreaterThanOrEqual(terrain.height + SPAWN_TERRAIN_CLEARANCE);
     }
   });
 
@@ -272,8 +301,9 @@ describe("shared simulation", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
     const other = room.players.p2;
+    const { x, z, terrain } = findTerrainSample((kind) => kind === "ocean");
 
-    player.position = { x: ARENA_RADIUS * 0.75, y: TERRAIN_COLLISION_MARGIN - 1, z: 0 };
+    player.position = { x, y: terrain.height + TERRAIN_COLLISION_MARGIN - 1, z };
     const events = stepRoom(room, 0, 1050);
 
     expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: player.id, reason: "terrain" });
@@ -286,8 +316,9 @@ describe("shared simulation", () => {
   it("does not crash aircraft while they still have visible terrain clearance", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
+    const { x, z, terrain } = findTerrainSample((kind) => kind === "ocean");
 
-    player.position = { x: ARENA_RADIUS * 0.75, y: TERRAIN_COLLISION_MARGIN + 3, z: 0 };
+    player.position = { x, y: terrain.height + TERRAIN_COLLISION_MARGIN + 3, z };
     stepRoom(room, 0, 1050);
 
     expect(player.status).toBe("alive");
@@ -296,8 +327,9 @@ describe("shared simulation", () => {
   it("crashes aircraft when a wingtip contacts terrain", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
+    const { x, z } = findTerrainSample((kind) => kind === "ocean");
 
-    player.position = { x: ARENA_RADIUS * 0.75, y: 10, z: 0 };
+    player.position = { x, y: 10, z };
     setRotation(player, { pitch: 0, yaw: 0, roll: -Math.PI / 2 });
 
     const events = stepRoom(room, 0, 1050);
@@ -307,10 +339,12 @@ describe("shared simulation", () => {
   });
 
   it("detects terrain impact across a fast descent segment", () => {
+    const { x, z, terrain } = findTerrainSample((kind) => kind === "ocean");
+
     expect(
       isTerrainImpact(
-        { x: ARENA_RADIUS * 0.75, y: -4, z: 0 },
-        { x: ARENA_RADIUS * 0.75, y: 18, z: 0 }
+        { x, y: terrain.height - 4, z },
+        { x, y: terrain.height + 18, z }
       )
     ).toBe(true);
   });
@@ -318,13 +352,9 @@ describe("shared simulation", () => {
   it("crashes aircraft on mountain impact", () => {
     const room = twoPlayerRoom();
     const player = room.players.p1;
-    const island = TERRAIN_ISLANDS[0];
-    const peak = island.peaks[0];
-    const x = island.x + peak.x;
-    const z = island.z + peak.z;
-    const terrain = terrainHeightAt(x, z);
+    const { x, z, terrain } = findTerrainSample((kind) => kind === "mountain" || kind === "snow");
 
-    expect(terrain.kind).toBe("mountain");
+    expect(["mountain", "snow"]).toContain(terrain.kind);
     player.position = { x, y: terrain.height + TERRAIN_COLLISION_MARGIN - 0.1, z };
     const events = stepRoom(room, 0, 1050);
 
@@ -519,9 +549,14 @@ describe("shared simulation", () => {
 
     expect(BULLET_HIT_RADIUS).toBeLessThanOrEqual(0.5);
 
-    attacker.position = { x: 0, y: 120, z: 0 };
+    const combatY = terrainClearanceY([
+      { x: 0, z: 0 },
+      { x: -11.2, z: 80 }
+    ]);
+
+    attacker.position = { x: 0, y: combatY, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    victim.position = { x: -11.2, y: 120, z: 80 };
+    victim.position = { x: -11.2, y: combatY, z: 80 };
     setRotation(victim, { pitch: 0, yaw: 0, roll: 0 });
     victim.health = 12;
 
@@ -579,15 +614,18 @@ describe("shared simulation", () => {
     const room = twoPlayerRoom();
     const owner = room.players.p1;
     const victim = room.players.p2;
+    const impactX = ARENA_RADIUS * 0.75;
+    const impactZ = 0;
+    const impactTerrainY = terrainHeightAt(impactX, impactZ).height;
     owner.position = { x: -MISSILE_BLAST_RADIUS * 3, y: 160, z: 0 };
-    victim.position = { x: ARENA_RADIUS * 0.75, y: 8, z: 28 };
+    victim.position = { x: impactX, y: impactTerrainY + 30, z: 28 };
     victim.health = PLAYER_HEALTH;
 
     const missile: ProjectileState = {
       id: "terrain-missile",
       type: "missile",
       ownerId: owner.id,
-      position: { x: ARENA_RADIUS * 0.75, y: TERRAIN_COLLISION_MARGIN - 0.1, z: 0 },
+      position: { x: impactX, y: impactTerrainY + TERRAIN_COLLISION_MARGIN - 0.1, z: impactZ },
       velocity: { x: 0, y: -MISSILE_SPEED, z: 0 },
       ttl: 1,
       damage: MISSILE_DAMAGE,
@@ -814,9 +852,14 @@ describe("shared simulation", () => {
     const attacker = room.players.p1;
     const target = room.players.p2;
 
-    attacker.position = { x: 0, y: 160, z: 0 };
+    const combatY = terrainClearanceY([
+      { x: 0, z: 0 },
+      { x: 0, z: 240 }
+    ]);
+
+    attacker.position = { x: 0, y: combatY, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    target.position = { x: 0, y: 160, z: 240 };
+    target.position = { x: 0, y: combatY, z: 240 };
     setRotation(target, { pitch: 0, yaw: 0, roll: 0 });
 
     setPlayerInput(attacker, { seq: 1, fireMissile: true });
@@ -1018,15 +1061,21 @@ describe("shared simulation", () => {
     const attacker = room.players.p1;
     const target = room.players.p2;
 
-    attacker.position = { x: 0, y: 160, z: 0 };
+    const combatY = terrainClearanceY([
+      { x: 0, z: 0 },
+      { x: 0, z: 240 },
+      { x: 500, z: 0 }
+    ]);
+
+    attacker.position = { x: 0, y: combatY, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    target.position = { x: 0, y: 160, z: 240 };
+    target.position = { x: 0, y: combatY, z: 240 };
     setRotation(target, { pitch: 0, yaw: 0, roll: 0 });
 
     holdLock(room);
     expect(attacker.missileLockAcquired).toBe(true);
 
-    target.position = { x: 500, y: 160, z: 0 };
+    target.position = { x: 500, y: combatY, z: 0 };
     setPlayerInput(attacker, { seq: 20 });
     stepRoom(room, 0.1, 2400);
 

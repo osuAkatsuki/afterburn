@@ -18,6 +18,11 @@ import { OceanSystem } from "./world/OceanSystem.js";
 import { SkySystem } from "./world/SkySystem.js";
 import { TerrainSystem } from "./world/TerrainSystem.js";
 
+export type FreeCameraPose = {
+  position: Vec3;
+  target: Vec3;
+};
+
 export type SceneDebugStats = {
   objects: number;
   jets: number;
@@ -48,7 +53,7 @@ export class DogfightScene {
   private readonly explosionSystem = new ExplosionSystem(this.scene);
   private readonly oceanSystem = new OceanSystem(this.scene);
   private readonly skySystem = new SkySystem(this.scene);
-  private readonly terrainSystem = new TerrainSystem(this.scene, this.oceanSystem);
+  private readonly terrainSystem = new TerrainSystem(this.scene);
   private readonly smokeSystem = new SmokeSystem(this.scene);
   private readonly combatEffects = new CombatEffectsSystem(
     this.explosionSystem,
@@ -58,30 +63,36 @@ export class DogfightScene {
   );
   private readonly debugSize = new THREE.Vector2();
   private readonly aimRay = new THREE.Vector3();
+  private readonly canvas: HTMLCanvasElement;
   private state: RoomState | undefined;
   private localPlayerId = "";
   private cameraLook: CameraLookInput = { active: false, yaw: 0, pitch: 0 };
+  private freeCameraPose: FreeCameraPose | undefined;
 
   private readonly resize = () => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const width = this.canvas.clientWidth || window.innerWidth;
+    const height = this.canvas.clientHeight || window.innerHeight;
+    this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(width, height);
   };
 
   constructor(canvas: HTMLCanvasElement, reticle: HTMLElement | null) {
+    this.canvas = canvas;
     this.reticleProjector = new ReticleProjector(reticle, this.camera, (playerId) =>
       this.jetRenderer.getJet(playerId)
     );
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
+    this.renderer.setClearColor("#8ed4ff", 1);
     this.camera.position.set(0, 260, -520);
 
     this.buildWorld();
+    this.resize();
     window.addEventListener("resize", this.resize);
   }
 
@@ -106,6 +117,10 @@ export class DogfightScene {
 
   setCameraLook(look: CameraLookInput): void {
     this.cameraLook = look;
+  }
+
+  setFreeCameraPose(pose: FreeCameraPose | undefined): void {
+    this.freeCameraPose = pose;
   }
 
   computeMouseAimAxes(aim: MouseAimPoint): FlightAxes | undefined {
@@ -141,7 +156,12 @@ export class DogfightScene {
     const dt = Math.min(this.clock.getDelta(), 0.05);
     this.oceanSystem.update(now);
     this.jetRenderer.update(dt, this.state, this.localPlayerId);
-    this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId), this.cameraLook);
+    if (this.freeCameraPose) {
+      this.applyFreeCameraPose();
+    } else {
+      this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId), this.cameraLook);
+    }
+    this.terrainSystem.update(this.camera.position);
     this.skySystem.update(this.camera);
     this.reticleProjector.update(this.state, this.localPlayerId);
     this.combatEffects.update(now, dt, this.state);
@@ -193,5 +213,15 @@ export class DogfightScene {
     this.oceanSystem.initialize();
     this.smokeSystem.initialize();
     this.terrainSystem.initialize();
+  }
+
+  private applyFreeCameraPose(): void {
+    if (!this.freeCameraPose) {
+      return;
+    }
+
+    const { position, target } = this.freeCameraPose;
+    this.camera.position.set(position.x, position.y, position.z);
+    this.camera.lookAt(target.x, target.y, target.z);
   }
 }

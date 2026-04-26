@@ -1,35 +1,49 @@
 import * as THREE from "three";
+import { CAMERA_FAR } from "../camera/ChaseCamera.js";
+
+type CloudPuff = {
+  position: THREE.Vector3;
+  scale: THREE.Vector3;
+  rotation: THREE.Euler;
+  color: THREE.Color;
+};
+
+const SKY_DOME_RADIUS = CAMERA_FAR * 0.76;
+const CLOUD_COUNT = 14;
+const CLOUD_MIN_RADIUS = 1400;
+const CLOUD_RADIUS_SPREAD = 5600;
+const CLOUD_MIN_ALTITUDE = 840;
+const CLOUD_ALTITUDE_SPREAD = 880;
 
 export class SkySystem {
   private skyDome?: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
-  private readonly clouds: THREE.Group[] = [];
+  private cloudMesh?: THREE.InstancedMesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  private readonly lights: THREE.Light[] = [];
+  private readonly cloudMatrix = new THREE.Matrix4();
+  private readonly cloudQuaternion = new THREE.Quaternion();
 
   constructor(private readonly scene: THREE.Scene) {}
 
   initialize(): void {
-    this.scene.background = new THREE.Color("#8bd3ff");
-    this.scene.fog = new THREE.Fog("#8bd3ff", 900, 3800);
+    this.scene.background = new THREE.Color("#8ed4ff");
+    this.scene.fog = new THREE.Fog("#a8ddf2", 2200, CAMERA_FAR * 0.92);
 
     this.skyDome = this.createSkyDome();
     this.scene.add(this.skyDome);
 
-    const hemi = new THREE.HemisphereLight("#dff6ff", "#1f5666", 1.75);
+    const hemi = new THREE.HemisphereLight("#e8f9ff", "#244c42", 1.55);
     this.scene.add(hemi);
+    this.lights.push(hemi);
 
-    const sun = new THREE.DirectionalLight("#fff3c4", 3.2);
-    sun.position.set(-620, 980, -360);
+    const sun = new THREE.DirectionalLight("#fff0c6", 3.45);
+    sun.position.set(-860, 1320, -520);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     this.scene.add(sun);
+    this.lights.push(sun);
 
-    for (let i = 0; i < 28; i += 1) {
-      const cloud = this.createCloud();
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 400 + Math.random() * 1300;
-      cloud.position.set(Math.sin(angle) * radius, 260 + Math.random() * 420, Math.cos(angle) * radius);
-      this.clouds.push(cloud);
-      this.scene.add(cloud);
-    }
+    this.cloudMesh = this.createCloudLayer();
+    this.scene.add(this.cloudMesh);
   }
 
   update(camera: THREE.Camera): void {
@@ -42,74 +56,136 @@ export class SkySystem {
       this.skyDome.geometry.dispose();
       this.skyDome.material.dispose();
     }
-    this.clouds.forEach((cloud) => {
-      this.scene.remove(cloud);
-      disposeObject(cloud);
-    });
-    this.clouds.length = 0;
+    if (this.cloudMesh) {
+      this.scene.remove(this.cloudMesh);
+      this.cloudMesh.geometry.dispose();
+      this.cloudMesh.material.dispose();
+      this.cloudMesh = undefined;
+    }
+    this.lights.forEach((light) => this.scene.remove(light));
+    this.lights.length = 0;
   }
 
   private createSkyDome(): THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> {
     const dome = new THREE.Mesh(
-      new THREE.SphereGeometry(5200, 32, 16),
+      new THREE.SphereGeometry(SKY_DOME_RADIUS, 64, 32),
       new THREE.ShaderMaterial({
         side: THREE.BackSide,
         depthWrite: false,
+        depthTest: false,
+        fog: false,
         uniforms: {
-          topColor: { value: new THREE.Color("#5eb8f2") },
-          horizonColor: { value: new THREE.Color("#bfeaff") }
+          topColor: { value: new THREE.Color("#2f83df") },
+          midColor: { value: new THREE.Color("#76c7f4") },
+          horizonColor: { value: new THREE.Color("#dff6ff") },
+          hazeColor: { value: new THREE.Color("#bdeaff") }
         },
         vertexShader: `
-          varying vec3 vWorldPosition;
+          varying vec3 vLocalPosition;
           void main() {
-            vWorldPosition = position;
+            vLocalPosition = position;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }
         `,
         fragmentShader: `
           uniform vec3 topColor;
+          uniform vec3 midColor;
           uniform vec3 horizonColor;
-          varying vec3 vWorldPosition;
+          uniform vec3 hazeColor;
+          varying vec3 vLocalPosition;
           void main() {
-            float h = normalize(vWorldPosition).y;
-            float mixAmount = smoothstep(-0.12, 0.82, h);
-            gl_FragColor = vec4(mix(horizonColor, topColor, mixAmount), 1.0);
+            float h = normalize(vLocalPosition).y;
+            float skyMix = smoothstep(-0.08, 0.92, h);
+            vec3 color = mix(horizonColor, topColor, skyMix);
+            color = mix(color, midColor, smoothstep(0.04, 0.56, h) * 0.28);
+            float haze = 1.0 - smoothstep(-0.03, 0.2, abs(h));
+            color = mix(color, hazeColor, haze * 0.38);
+            gl_FragColor = vec4(color, 1.0);
           }
         `
       })
     );
     dome.frustumCulled = false;
+    dome.renderOrder = -1000;
     return dome;
   }
 
-  private createCloud(): THREE.Group {
-    const group = new THREE.Group();
-    const material = new THREE.MeshStandardMaterial({ color: "#f8fbff", roughness: 1, transparent: true, opacity: 0.72 });
-    const shadowMaterial = new THREE.MeshStandardMaterial({ color: "#d7e5ef", roughness: 1, transparent: true, opacity: 0.34 });
-    const count = 5 + Math.floor(Math.random() * 5);
+  private createCloudLayer(): THREE.InstancedMesh<THREE.SphereGeometry, THREE.MeshBasicMaterial> {
+    const puffs = createCloudPuffs();
+    const mesh = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(1, 10, 6),
+      new THREE.MeshBasicMaterial({
+        color: "#ffffff",
+        transparent: true,
+        opacity: 0.68,
+        depthWrite: false
+      }),
+      puffs.length
+    );
+    mesh.name = "sky-cloud-layer";
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 4;
 
-    for (let i = 0; i < count; i += 1) {
-      const puff = new THREE.Mesh(new THREE.DodecahedronGeometry(24 + Math.random() * 26, 0), i % 3 === 0 ? shadowMaterial : material);
-      puff.position.set((i - count / 2) * 24, Math.random() * 14, (Math.random() - 0.5) * 32);
-      puff.scale.set(2.1, 0.46, 0.92);
-      group.add(puff);
+    puffs.forEach((puff, index) => {
+      this.cloudQuaternion.setFromEuler(puff.rotation);
+      this.cloudMatrix.compose(puff.position, this.cloudQuaternion, puff.scale);
+      mesh.setMatrixAt(index, this.cloudMatrix);
+      mesh.setColorAt(index, puff.color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) {
+      mesh.instanceColor.needsUpdate = true;
     }
 
-    return group;
+    return mesh;
   }
 }
 
-function disposeObject(object: THREE.Object3D): void {
-  const geometries = new Set<THREE.BufferGeometry>();
-  const materials = new Set<THREE.Material>();
-  object.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      const mesh = child as THREE.Mesh;
-      geometries.add(mesh.geometry);
-      const meshMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      meshMaterials.forEach((material) => materials.add(material));
+function createCloudPuffs(): CloudPuff[] {
+  const random = seededRandom(942001);
+  const puffs: CloudPuff[] = [];
+
+  for (let cloudIndex = 0; cloudIndex < CLOUD_COUNT; cloudIndex += 1) {
+    const angle = random() * Math.PI * 2;
+    const radius = CLOUD_MIN_RADIUS + random() * CLOUD_RADIUS_SPREAD;
+    const center = new THREE.Vector3(
+      Math.sin(angle) * radius,
+      CLOUD_MIN_ALTITUDE + random() * CLOUD_ALTITUDE_SPREAD,
+      Math.cos(angle) * radius
+    );
+    const cloudRotation = random() * Math.PI * 2;
+    const puffCount = 5 + Math.floor(random() * 4);
+
+    for (let puffIndex = 0; puffIndex < puffCount; puffIndex += 1) {
+      const t = puffCount === 1 ? 0 : puffIndex / (puffCount - 1) - 0.5;
+      const lateral = (random() - 0.5) * 210;
+      const along = t * (360 + random() * 220);
+      const cos = Math.cos(cloudRotation);
+      const sin = Math.sin(cloudRotation);
+      const x = center.x + along * cos - lateral * sin;
+      const z = center.z + along * sin + lateral * cos;
+      const y = center.y + (random() - 0.5) * 52;
+      const puffScale = 95 + random() * 105;
+      const shade = 0.82 + random() * 0.16;
+      puffs.push({
+        position: new THREE.Vector3(x, y, z),
+        scale: new THREE.Vector3(puffScale * (1.35 + random() * 1.4), puffScale * (0.16 + random() * 0.12), puffScale * (0.58 + random() * 0.58)),
+        rotation: new THREE.Euler((random() - 0.5) * 0.05, cloudRotation + (random() - 0.5) * 0.35, (random() - 0.5) * 0.08),
+        color: new THREE.Color(shade, shade * 0.985, shade * 0.965)
+      });
     }
-  });
-  geometries.forEach((geometry) => geometry.dispose());
-  materials.forEach((material) => material.dispose());
+  }
+
+  return puffs;
+}
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
 }

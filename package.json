@@ -10,6 +10,7 @@
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "start": "NODE_ENV=production node dist/node/server/index.js",
+    "terrain:qa": "node scripts/capture-terrain-qa.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
