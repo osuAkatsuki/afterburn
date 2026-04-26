@@ -48,7 +48,7 @@ describe("missile threat cues", () => {
 
     expect(cue?.clockLabel).toBe("3 O'CLOCK");
     expect(cue?.range).toBeCloseTo(240);
-    expect(cue?.impactSeconds).toBeCloseTo(0.27, 2);
+    expect(cue?.impactSeconds).toBeCloseTo(0.3, 2);
     expect(cue?.bearingRadians).toBeCloseTo(Math.PI / 2);
   });
 

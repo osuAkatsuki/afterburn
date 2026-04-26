@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   AFTERBURNER_SPEED,
-  AIRCRAFT_COLLISION_RADIUS,
   ARENA_RADIUS,
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
@@ -29,12 +28,12 @@ import {
   MISSILE_DAMAGE,
   MISSILE_HIT_RADIUS,
   MISSILE_NAVIGATION_CONSTANT,
+  MISSILE_PROXIMITY_RADIUS,
   MISSILE_SEEKER_GATE_DOT,
   MISSILE_SPEED,
   MISSILE_TTL_SECONDS,
   OUT_OF_BOUNDS_GRACE_MS,
   PLAYER_HEALTH,
-  PLAYER_HIT_RADIUS,
   RESPAWN_MS,
   SPAWN_ALTITUDE_MAX,
   SPAWN_ALTITUDE_MIN,
@@ -294,6 +293,19 @@ describe("shared simulation", () => {
     expect(player.status).toBe("alive");
   });
 
+  it("crashes aircraft when a wingtip contacts terrain", () => {
+    const room = twoPlayerRoom();
+    const player = room.players.p1;
+
+    player.position = { x: ARENA_RADIUS * 0.75, y: 10, z: 0 };
+    setRotation(player, { pitch: 0, yaw: 0, roll: -Math.PI / 2 });
+
+    const events = stepRoom(room, 0, 1050);
+
+    expect(events).toContainEqual({ type: "crash", roomId: room.id, playerId: player.id, reason: "terrain" });
+    expect(player.status).toBe("dead");
+  });
+
   it("detects terrain impact across a fast descent segment", () => {
     expect(
       isTerrainImpact(
@@ -358,7 +370,9 @@ describe("shared simulation", () => {
     const second = room.players.p2;
 
     first.position = { x: ARENA_RADIUS * 0.5, y: 220, z: 0 };
-    second.position = { x: ARENA_RADIUS * 0.5 + AIRCRAFT_COLLISION_RADIUS * 2 - 0.1, y: 220, z: 0 };
+    setRotation(first, { pitch: 0, yaw: 0, roll: 0 });
+    second.position = { x: ARENA_RADIUS * 0.5 + 34.2, y: 220, z: 0 };
+    setRotation(second, { pitch: 0, yaw: 0, roll: 0 });
 
     const events = stepRoom(room, 0, 1050);
 
@@ -374,13 +388,15 @@ describe("shared simulation", () => {
     expect(second.score).toBe(0);
   });
 
-  it("does not use weapon hit radius for aircraft collisions", () => {
+  it("requires airframe overlap for aircraft collisions", () => {
     const room = twoPlayerRoom();
     const first = room.players.p1;
     const second = room.players.p2;
 
     first.position = { x: ARENA_RADIUS * 0.5, y: 220, z: 0 };
-    second.position = { x: ARENA_RADIUS * 0.5 + AIRCRAFT_COLLISION_RADIUS * 2 + 0.1, y: 220, z: 0 };
+    setRotation(first, { pitch: 0, yaw: 0, roll: 0 });
+    second.position = { x: ARENA_RADIUS * 0.5 + 38, y: 220, z: 0 };
+    setRotation(second, { pitch: 0, yaw: 0, roll: 0 });
 
     const events = stepRoom(room, 0, 1050);
 
@@ -395,7 +411,9 @@ describe("shared simulation", () => {
     const first = room.players.p1;
     const second = room.players.p2;
     first.position = { x: 0, y: 260, z: 0 };
-    second.position = { x: AIRCRAFT_COLLISION_RADIUS, y: 260, z: 0 };
+    setRotation(first, { pitch: 0, yaw: 0, roll: 0 });
+    second.position = { x: 4, y: 260, z: 0 };
+    setRotation(second, { pitch: 0, yaw: 0, roll: 0 });
     first.spawnProtectionUntil = 4000;
     first.spawnProtectionRemainingMs = 3000;
 
@@ -459,7 +477,7 @@ describe("shared simulation", () => {
 
     attacker.position = { x: 0, y: 420, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    victim.position = { x: 0, y: 420, z: 90 };
+    victim.position = { x: -7.6, y: 420, z: 90 };
     victim.health = 12;
 
     setPlayerInput(attacker, { seq: 1, fireGun: true });
@@ -499,15 +517,16 @@ describe("shared simulation", () => {
     const attacker = room.players.p1;
     const victim = room.players.p2;
 
-    expect(BULLET_HIT_RADIUS).toBeLessThanOrEqual(3);
+    expect(BULLET_HIT_RADIUS).toBeLessThanOrEqual(0.5);
 
     attacker.position = { x: 0, y: 120, z: 0 };
     setRotation(attacker, { pitch: 0, yaw: 0, roll: 0 });
-    victim.position = { x: PLAYER_HIT_RADIUS + BULLET_HIT_RADIUS + 3, y: 120, z: 80 };
+    victim.position = { x: -11.2, y: 120, z: 80 };
+    setRotation(victim, { pitch: 0, yaw: 0, roll: 0 });
     victim.health = 12;
 
     setPlayerInput(attacker, { seq: 1, fireGun: true });
-    const events = stepRoom(room, 0, 1050);
+    const events = stepRoom(room, 0.05, 1050);
 
     expect(events.some((event) => event.type === "hit")).toBe(false);
     expect(victim.health).toBe(12);
@@ -638,7 +657,7 @@ describe("shared simulation", () => {
       id: "closing-missile",
       type: "missile",
       ownerId: owner.id,
-      position: { x: 0, y: 180, z: PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS + 12 },
+      position: { x: 0, y: 180, z: MISSILE_PROXIMITY_RADIUS - 4 },
       velocity: { x: 0, y: 0, z: -MISSILE_SPEED },
       ttl: 1,
       damage: MISSILE_DAMAGE,
@@ -665,7 +684,7 @@ describe("shared simulation", () => {
       id: "proximity-missile",
       type: "missile",
       ownerId: owner.id,
-      position: { x: -MISSILE_SPEED * 0.0005, y: 180, z: PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS + 8 },
+      position: { x: -MISSILE_SPEED * 0.0005, y: 180 + MISSILE_HIT_RADIUS + 12, z: 0 },
       velocity: { x: MISSILE_SPEED, y: 0, z: 0 },
       ttl: 1,
       damage: MISSILE_DAMAGE,

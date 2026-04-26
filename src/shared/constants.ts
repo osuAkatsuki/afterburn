@@ -110,8 +110,7 @@ export const TERRAIN_ISLANDS: TerrainIsland[] = [
 ];
 
 export const PLAYER_HEALTH = 100;
-export const PLAYER_HIT_RADIUS = 22;
-export const AIRCRAFT_COLLISION_RADIUS = 16;
+export const AIRCRAFT_COLLISION_PADDING = 1.15;
 export const SPEED_UNIT = 100;
 export const MIN_SPEED = SPEED_UNIT * 1.5;
 export const MAX_SPEED = SPEED_UNIT * 1.5;
@@ -135,7 +134,7 @@ export const GUN_AMMO_PER_ROUND = 480;
 export const GUN_CONVERGENCE_DISTANCE = 650;
 export const BULLET_SPEED = SPEED_UNIT * 16;
 export const BULLET_TTL_SECONDS = 2.55;
-export const BULLET_HIT_RADIUS = 3;
+export const BULLET_HIT_RADIUS = 0.45;
 
 export const MISSILE_DAMAGE = 70;
 export const MISSILE_AMMO_PER_ROUND = 3;
@@ -151,8 +150,8 @@ export const MISSILE_LOCK_DOT = 0.992;
 export const MISSILE_LOCK_BREAK_DOT = 0.985;
 export const MISSILE_SEEKER_GIMBAL_DOT = 0.82;
 export const MISSILE_SEEKER_GATE_DOT = 0.62;
-export const MISSILE_HIT_RADIUS = 34;
-export const MISSILE_PROXIMITY_RADIUS = 58;
+export const MISSILE_HIT_RADIUS = 2.2;
+export const MISSILE_PROXIMITY_RADIUS = 42;
 export const MISSILE_BLAST_RADIUS = 120;
 export const MISSILE_MIN_BLAST_DAMAGE = 22;
 

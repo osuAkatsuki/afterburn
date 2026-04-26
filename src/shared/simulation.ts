@@ -1,6 +1,6 @@
 import {
   AFTERBURNER_SPEED,
-  AIRCRAFT_COLLISION_RADIUS,
+  AIRCRAFT_COLLISION_PADDING,
   AOA_LIFT_ACCELERATION,
   BULLET_HIT_RADIUS,
   BULLET_SPEED,
@@ -42,7 +42,6 @@ import {
   MISSILE_TTL_SECONDS,
   MISSILE_TURN_RATE,
   PLAYER_HEALTH,
-  PLAYER_HIT_RADIUS,
   RESPAWN_MS,
   ROLL_RATE,
   ROUND_MS,
@@ -61,6 +60,13 @@ import {
   JET_ENGINE_HEAT_SIGNATURE,
   VELOCITY_ALIGNMENT
 } from "./constants.js";
+import {
+  aircraftIntersectsAircraft,
+  aircraftTerrainProbePoints,
+  closestProjectileToAircraftAirframe,
+  closestProjectileToAircraftFuselage,
+  distanceToAircraftAirframe
+} from "./hitShapes.js";
 import {
   add,
   applyQuaternion,
@@ -94,7 +100,7 @@ type MissileGuidanceTarget = {
 };
 type MissilePlayerCandidate = {
   player: PlayerState;
-  closestRange: number;
+  clearance: number;
   segmentT: number;
   position: Vec3;
 };
@@ -464,7 +470,7 @@ function resolveArenaHazards(
   events: CombatEvent[],
   previousPosition?: Vec3
 ): boolean {
-  if (isTerrainImpact(player.position, previousPosition)) {
+  if (isAircraftTerrainImpact(player, previousPosition)) {
     crashPlayer(room, player, "terrain", now, events);
     return true;
   }
@@ -526,12 +532,24 @@ function resolvePlayerCollisions(room: RoomState, now: number, events: CombatEve
         continue;
       }
 
-      if (distance(player.position, other.position) <= AIRCRAFT_COLLISION_RADIUS * 2) {
+      if (aircraftIntersectsAircraft(player, other, AIRCRAFT_COLLISION_PADDING)) {
         crashPlayer(room, player, "collision", now, events);
         crashPlayer(room, other, "collision", now, events);
       }
     }
   }
+}
+
+function isAircraftTerrainImpact(player: PlayerState, previousPosition?: Vec3): boolean {
+  if (isTerrainImpact(player.position, previousPosition)) {
+    return true;
+  }
+
+  const centerDelta = previousPosition ? subtract(previousPosition, player.position) : undefined;
+  return aircraftTerrainProbePoints(player).some((point) => {
+    const previousPoint = centerDelta ? add(point, centerDelta) : undefined;
+    return isTerrainImpact(point, previousPoint);
+  });
 }
 
 function clearOutOfBoundsWarning(player: PlayerState): void {
@@ -834,8 +852,8 @@ function detonateMissile(
       return;
     }
 
-    const range = distance(player.position, projectile.position);
-    if (range > MISSILE_BLAST_RADIUS + PLAYER_HIT_RADIUS) {
+    const range = distanceToAircraftAirframe(projectile.position, player);
+    if (range > MISSILE_BLAST_RADIUS) {
       return;
     }
 
@@ -844,7 +862,7 @@ function detonateMissile(
         ? Math.max(PLAYER_HEALTH, MISSILE_DAMAGE)
         : Math.round(
             MISSILE_MIN_BLAST_DAMAGE +
-              (MISSILE_DAMAGE - MISSILE_MIN_BLAST_DAMAGE) * (1 - clamp(range / (MISSILE_BLAST_RADIUS + PLAYER_HIT_RADIUS), 0, 1))
+              (MISSILE_DAMAGE - MISSILE_MIN_BLAST_DAMAGE) * (1 - clamp(range / MISSILE_BLAST_RADIUS, 0, 1))
           );
 
     applyDamage(room, projectile.ownerId, player.id, damage, "missile", now, events);
@@ -954,50 +972,38 @@ function findBulletHit(room: RoomState, projectile: ProjectileState, previousPos
   return Object.values(room.players)
     .filter((player) => player.id !== projectile.ownerId && player.status === "alive" && !isPlayerSpawnProtected(player, now))
     .map((player) => {
-      const closest = closestPointOnSegment(previousPosition, projectile.position, player.position);
-      return { player, closestRange: closest.range, segmentT: closest.t };
+      const closest = closestProjectileToAircraftFuselage(previousPosition, projectile.position, player);
+      return { player, clearance: closest.clearance, segmentT: closest.segmentT };
     })
-    .filter(({ closestRange }) => closestRange <= PLAYER_HIT_RADIUS + BULLET_HIT_RADIUS)
-    .sort((a, b) => a.segmentT - b.segmentT || a.closestRange - b.closestRange)[0]?.player;
+    .filter(({ clearance }) => clearance <= BULLET_HIT_RADIUS)
+    .sort((a, b) => a.segmentT - b.segmentT || a.clearance - b.clearance)[0]?.player;
 }
 
 function findMissileDirectHit(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): MissilePlayerCandidate | undefined {
   return missilePlayerCandidates(room, projectile, previousPosition, now)
-    .filter(({ closestRange }) => closestRange <= PLAYER_HIT_RADIUS + MISSILE_HIT_RADIUS)
-    .sort((a, b) => a.closestRange - b.closestRange)[0];
+    .filter(({ clearance }) => clearance <= MISSILE_HIT_RADIUS)
+    .sort((a, b) => a.clearance - b.clearance || a.segmentT - b.segmentT)[0];
 }
 
 function findMissileProximityFuseTarget(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): MissilePlayerCandidate | undefined {
   return missilePlayerCandidates(room, projectile, previousPosition, now)
-    .filter(({ closestRange, segmentT, player }) => {
-      if (closestRange > PLAYER_HIT_RADIUS + MISSILE_PROXIMITY_RADIUS) {
+    .filter(({ clearance, segmentT, player }) => {
+      if (clearance > MISSILE_PROXIMITY_RADIUS) {
         return false;
       }
 
       return segmentT < 0.98 || !isMissileClosingOnPlayer(projectile, player);
     })
-    .sort((a, b) => a.closestRange - b.closestRange)[0];
+    .sort((a, b) => a.clearance - b.clearance || a.segmentT - b.segmentT)[0];
 }
 
 function missilePlayerCandidates(room: RoomState, projectile: ProjectileState, previousPosition: Vec3, now: number): MissilePlayerCandidate[] {
   return Object.values(room.players)
     .filter((player) => player.id !== projectile.ownerId && player.status === "alive" && !isPlayerSpawnProtected(player, now))
     .map((player) => {
-      const closest = closestPointOnSegment(previousPosition, projectile.position, player.position);
-      return { player, closestRange: closest.range, segmentT: closest.t, position: closest.position };
+      const closest = closestProjectileToAircraftAirframe(previousPosition, projectile.position, player);
+      return { player, clearance: closest.clearance, segmentT: closest.segmentT, position: closest.position };
     });
-}
-
-function closestPointOnSegment(start: Vec3, end: Vec3, point: Vec3): { range: number; t: number; position: Vec3 } {
-  const segment = subtract(end, start);
-  const lengthSquared = dot(segment, segment);
-  if (lengthSquared <= 0) {
-    return { range: distance(start, point), t: 0, position: cloneVec3(start) };
-  }
-
-  const t = clamp(dot(subtract(point, start), segment) / lengthSquared, 0, 1);
-  const position = add(start, scale(segment, t));
-  return { range: distance(position, point), t, position };
 }
 
 function isMissileClosingOnPlayer(projectile: ProjectileState, player: PlayerState): boolean {
