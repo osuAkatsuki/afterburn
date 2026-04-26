@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RoomState } from "../../shared/types.js";
 import {
-  combatFeedbackItemsForNotice,
+  combatFeedbackItemsForNotices,
   unprocessedCombatNotices,
   type CombatFeedbackItem,
   type CombatNotice
@@ -43,9 +43,7 @@ export function CombatFeedback({ notices, playerId, room }: CombatFeedbackProps)
     }
 
     processedNoticeId.current = pendingNotices[pendingNotices.length - 1].id;
-    const nextItems = pendingNotices.flatMap((pendingNotice) =>
-      combatFeedbackItemsForNotice(pendingNotice, playerId, playerNames.current)
-    );
+    const nextItems = combatFeedbackItemsForNotices(pendingNotices, playerId, playerNames.current);
 
     if (nextItems.length === 0) {
       return;
