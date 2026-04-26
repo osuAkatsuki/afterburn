@@ -13,10 +13,12 @@ type TerrainClipmapConfig = {
 };
 
 const TERRAIN_LEVELS: TerrainClipmapConfig[] = [
-  { name: "near", halfSize: 920, innerHalfSize: 0, step: 10, snapStep: 40, yOffset: 0 },
-  { name: "mid", halfSize: 2200, innerHalfSize: 840, step: 28, snapStep: 112, yOffset: -0.18 },
-  { name: "far", halfSize: 5200, innerHalfSize: 2050, step: 82, snapStep: 328, yOffset: -0.45 }
+  { name: "near", halfSize: 820, innerHalfSize: 0, step: 18, snapStep: 72, yOffset: 0 },
+  { name: "mid", halfSize: 2200, innerHalfSize: 760, step: 48, snapStep: 192, yOffset: -0.18 },
+  { name: "far", halfSize: 5600, innerHalfSize: 2040, step: 160, snapStep: 640, yOffset: -0.45 }
 ];
+
+const TERRAIN_SAMPLE_CACHE_LIMIT = 120_000;
 
 const TERRAIN_COLORS: Record<TerrainKind, string> = {
   ocean: "#103b46",
@@ -58,7 +60,7 @@ export class TerrainSystem {
   }
 
   update(cameraPosition: THREE.Vector3): void {
-    this.levels.forEach((level) => level.update(cameraPosition));
+    this.levels.find((level) => level.needsUpdate(cameraPosition))?.update(cameraPosition);
   }
 
   dispose(): void {
@@ -98,13 +100,17 @@ class TerrainClipmapLevel {
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.name = `terrain-${config.name}`;
     this.mesh.receiveShadow = true;
-    this.mesh.castShadow = true;
+    this.mesh.castShadow = false;
     this.mesh.frustumCulled = false;
   }
 
+  needsUpdate(center: THREE.Vector3): boolean {
+    const { x, z } = this.snappedOrigin(center);
+    return x !== this.originX || z !== this.originZ;
+  }
+
   update(center: THREE.Vector3, force = false): void {
-    const nextOriginX = Math.round(center.x / this.config.snapStep) * this.config.snapStep;
-    const nextOriginZ = Math.round(center.z / this.config.snapStep) * this.config.snapStep;
+    const { x: nextOriginX, z: nextOriginZ } = this.snappedOrigin(center);
     if (!force && nextOriginX === this.originX && nextOriginZ === this.originZ) {
       return;
     }
@@ -115,7 +121,7 @@ class TerrainClipmapLevel {
     this.localCoordinates.forEach((local, index) => {
       const worldX = this.originX + local.x;
       const worldZ = this.originZ + local.z;
-      const sample = sampleTerrainAt(worldX, worldZ);
+      const sample = cachedSampleTerrainAt(worldX, worldZ);
       const positionOffset = index * 3;
       this.positions[positionOffset] = worldX;
       this.positions[positionOffset + 1] = terrainRenderHeight(sample, this.config.yOffset);
@@ -135,6 +141,13 @@ class TerrainClipmapLevel {
 
   dispose(): void {
     this.mesh.geometry.dispose();
+  }
+
+  private snappedOrigin(center: THREE.Vector3): { x: number; z: number } {
+    return {
+      x: Math.round(center.x / this.config.snapStep) * this.config.snapStep,
+      z: Math.round(center.z / this.config.snapStep) * this.config.snapStep
+    };
   }
 }
 
@@ -198,4 +211,22 @@ function landColor(sample: TerrainSample): THREE.Color {
   const rock = COLOR_ROCK.clone().lerp(COLOR_DARK_ROCK, THREE.MathUtils.clamp(sample.slope * 0.6, 0, 1));
   const terrain = grass.lerp(rock, THREE.MathUtils.clamp(sample.rock, 0, 0.92));
   return terrain.lerp(COLOR_SNOW, THREE.MathUtils.clamp(sample.snow, 0, 1));
+}
+
+const terrainSampleCache = new Map<string, TerrainSample>();
+
+function cachedSampleTerrainAt(x: number, z: number): TerrainSample {
+  const key = `${Math.round(x)}:${Math.round(z)}`;
+  const cached = terrainSampleCache.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  if (terrainSampleCache.size > TERRAIN_SAMPLE_CACHE_LIMIT) {
+    terrainSampleCache.clear();
+  }
+
+  const sample = sampleTerrainAt(x, z);
+  terrainSampleCache.set(key, sample);
+  return sample;
 }
