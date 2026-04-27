@@ -156,7 +156,13 @@ function emitError(socket: GameSocket, message: string): void {
 }
 
 function emitSnapshot(io: GameServer, manager: GameRoomManager, room: RoomState): void {
-  const payload: StateSnapshotPayload = { tick: manager.getTick(), sentAt: Date.now(), room };
+  const network = manager.getNetworkDebugStats(room.id);
+  const payload: StateSnapshotPayload = {
+    tick: manager.getTick(),
+    sentAt: Date.now(),
+    room,
+    debug: network ? { network } : undefined
+  };
   io.to(room.id).emit("state:snapshot", payload);
 }
 

@@ -120,9 +120,11 @@ input:focus {
 
 .debug-overlay {
   position: fixed;
-  inset: 76px 18px auto auto;
-  width: min(260px, calc(100vw - 36px));
+  inset: 18px 18px auto auto;
+  width: min(520px, calc(100vw - 36px));
+  max-height: calc(100vh - 36px);
   padding: 10px 12px 12px;
+  overflow: hidden auto;
   border: 1px solid rgb(139 233 255 / 30%);
   border-radius: 8px;
   color: rgb(226 250 255 / 94%);
@@ -133,7 +135,19 @@ input:focus {
   backdrop-filter: blur(12px);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   pointer-events: none;
+  scrollbar-gutter: stable;
   z-index: 30;
+}
+
+.debug-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.debug-column {
+  display: grid;
+  align-content: start;
 }
 
 .debug-header,
@@ -189,6 +203,48 @@ input:focus {
 
 .debug-empty {
   margin: 0;
+}
+
+.debug-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.debug-shortcut {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgb(139 233 255 / 24%);
+  border-radius: 4px;
+  color: rgb(226 250 255 / 92%);
+  background: rgb(4 24 40 / 78%);
+  font: inherit;
+  font-size: 0.62rem;
+  line-height: 1;
+}
+
+.debug-shortcut kbd {
+  color: var(--hud-cyan);
+  font: inherit;
+  font-weight: 800;
+}
+
+.debug-shortcut[data-disabled="true"] {
+  opacity: 0.42;
+}
+
+@media (max-width: 760px) {
+  .debug-overlay {
+    width: min(280px, calc(100vw - 36px));
+  }
+
+  .debug-body {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hud {

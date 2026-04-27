@@ -1,4 +1,4 @@
-import type { NetPingPayload, NetPongPayload, StateSnapshotPayload } from "../../shared/types.js";
+import type { NetPingPayload, NetPongPayload, RoomNetworkDebugStats, StateSnapshotPayload } from "../../shared/types.js";
 
 export type NetworkStats = {
   rttMs: number;
@@ -10,6 +10,7 @@ export type NetworkStats = {
   transportDelayMs: number;
   snapshotBytes: number;
   reconnects: number;
+  serverDebug?: RoomNetworkDebugStats;
 };
 
 export const PING_INTERVAL_MS = 1000;
@@ -62,7 +63,8 @@ export class NetworkTelemetry {
         ...this.stats,
         lastSnapshotAt: receivedAt,
         transportDelayMs,
-        snapshotBytes
+        snapshotBytes,
+        serverDebug: payload.debug?.network
       };
       return this.getStats();
     }
@@ -79,7 +81,8 @@ export class NetworkTelemetry {
       snapshotJitterMs: this.stats.snapshotJitterMs * 0.85 + jitter * 0.15,
       lastSnapshotAt: receivedAt,
       transportDelayMs: this.stats.transportDelayMs > 0 ? this.stats.transportDelayMs * 0.85 + transportDelayMs * 0.15 : transportDelayMs,
-      snapshotBytes: this.stats.snapshotBytes > 0 ? this.stats.snapshotBytes * 0.85 + snapshotBytes * 0.15 : snapshotBytes
+      snapshotBytes: this.stats.snapshotBytes > 0 ? this.stats.snapshotBytes * 0.85 + snapshotBytes * 0.15 : snapshotBytes,
+      serverDebug: payload.debug?.network
     };
     return this.getStats();
   }

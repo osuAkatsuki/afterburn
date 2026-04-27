@@ -141,6 +141,23 @@ export type RoomState = {
   winnerId?: string;
 };
 
+export type PlayerNetworkDebugStats = {
+  combatRewindMs: number;
+  inputQueued: number;
+  inputDropped: number;
+  inputConsumed: number;
+};
+
+export type RoomNetworkDebugStats = {
+  historySamples: number;
+  historyClampedSamples: number;
+  players: Record<string, PlayerNetworkDebugStats>;
+};
+
+export type SnapshotDebugPayload = {
+  network: RoomNetworkDebugStats;
+};
+
 export type RoomJoinedPayload = {
   roomId: string;
   playerId: string;
@@ -155,6 +172,7 @@ export type StateSnapshotPayload = {
   tick: number;
   sentAt: number;
   room: RoomState;
+  debug?: SnapshotDebugPayload;
 };
 
 export type RoundEndedPayload = {
