@@ -1,10 +1,29 @@
 import * as THREE from "three";
-import { BULLET_SPEED, BULLET_TTL_SECONDS, GUN_CONVERGENCE_DISTANCE } from "../../../shared/constants.js";
+import {
+  BULLET_SPEED,
+  BULLET_TTL_SECONDS,
+  GUN_CONVERGENCE_DISTANCE,
+  MISSILE_LOCK_BREAK_DOT,
+  MISSILE_LOCK_RANGE,
+  MISSILE_SEEKER_GIMBAL_DOT
+} from "../../../shared/constants.js";
+import { AIRFRAME_BULLET_BOXES, AIRFRAME_BULLET_CAPSULES } from "../../../shared/hitShapes.js";
 import type { PlayerState, RoomState } from "../../../shared/types.js";
 
 const GUN_MUZZLE_FORWARD_OFFSET = 22;
 const GUN_MUZZLE_SIDE_OFFSET = 8.5;
 const GUN_MUZZLE_VERTICAL_OFFSET = -0.8;
+const LEAD_PIP_MIN_SIZE_PX = 14;
+const LEAD_PIP_MAX_SIZE_PX = 30;
+const LEAD_TARGET_RADIUS_METERS = targetGunDamageRadiusMeters();
+
+type GunLeadCandidate = {
+  player: PlayerState;
+  targetPosition: THREE.Vector3;
+  range: number;
+  gunAlignment: number;
+  seekerAlignment: number;
+};
 
 export class ReticleProjector {
   constructor(
@@ -55,7 +74,13 @@ export class ReticleProjector {
       return;
     }
 
-    const maxRange = BULLET_SPEED * BULLET_TTL_SECONDS;
+    const seekerDirection = seekerDirectionFromAim(local, forward);
+    if (!seekerDirection) {
+      this.reticle.dataset.leadVisible = "false";
+      return;
+    }
+
+    const maxRange = Math.min(BULLET_SPEED * BULLET_TTL_SECONDS, MISSILE_LOCK_RANGE);
     const localPosition = localJet.position;
     const candidates = Object.values(room.players)
       .filter((player) => player.id !== local.id && player.status === "alive")
@@ -66,13 +91,17 @@ export class ReticleProjector {
           : new THREE.Vector3(player.position.x, player.position.y, player.position.z);
         const offset = targetPosition.clone().sub(localPosition);
         const range = offset.length();
-        const alignment = offset.normalize().dot(forward);
-        return { player, targetPosition, range, alignment };
-      })
-      .filter(({ range, alignment }) => range <= maxRange && alignment > 0.35)
-      .sort((a, b) => b.alignment - a.alignment || a.range - b.range);
+        const direction = offset.normalize();
+        return {
+          player,
+          targetPosition,
+          range,
+          gunAlignment: direction.dot(forward),
+          seekerAlignment: direction.dot(seekerDirection)
+        };
+      });
 
-    const candidate = candidates[0];
+    const candidate = selectGunLeadCandidate(candidates, local, maxRange);
     if (!candidate) {
       this.reticle.dataset.leadVisible = "false";
       return;
@@ -103,8 +132,80 @@ export class ReticleProjector {
     this.reticle.dataset.leadVisible = "true";
     this.reticle.style.setProperty("--lead-x", `${x}px`);
     this.reticle.style.setProperty("--lead-y", `${y}px`);
+    this.reticle.style.setProperty("--lead-size", `${leadPipSizePx(candidate.targetPosition, this.camera, LEAD_TARGET_RADIUS_METERS).toFixed(1)}px`);
   }
 
+}
+
+export function selectGunLeadCandidate(
+  candidates: GunLeadCandidate[],
+  local: PlayerState,
+  maxRange = Math.min(BULLET_SPEED * BULLET_TTL_SECONDS, MISSILE_LOCK_RANGE)
+): GunLeadCandidate | undefined {
+  const activeMissileTarget = local.missileLockTargetId && local.missileLockProgress > 0;
+  const currentLock = activeMissileTarget
+    ? candidates.find(
+        ({ player, range, seekerAlignment }) =>
+          player.id === local.missileLockTargetId &&
+          range <= maxRange &&
+          seekerAlignment >= MISSILE_LOCK_BREAK_DOT
+      )
+    : undefined;
+  if (currentLock) {
+    return currentLock;
+  }
+
+  return candidates
+    .filter(({ range, gunAlignment }) => range <= maxRange && gunAlignment > 0.35)
+    .sort((a, b) => b.gunAlignment - a.gunAlignment || a.range - b.range)[0];
+}
+
+function seekerDirectionFromAim(local: PlayerState, forward: THREE.Vector3): THREE.Vector3 | undefined {
+  const aimDirection = local.input.aimDirection;
+  if (!aimDirection) {
+    return undefined;
+  }
+
+  const aim = new THREE.Vector3(aimDirection.x, aimDirection.y, aimDirection.z);
+  if (aim.lengthSq() <= 0.00001) {
+    return undefined;
+  }
+
+  aim.normalize();
+  return forward.dot(aim) >= MISSILE_SEEKER_GIMBAL_DOT ? aim : forward;
+}
+
+export function leadPipSizePx(
+  targetPosition: THREE.Vector3,
+  camera: THREE.Camera,
+  radiusMeters = LEAD_TARGET_RADIUS_METERS,
+  viewportHeight = window.innerHeight
+): number {
+  if (!(camera instanceof THREE.PerspectiveCamera)) {
+    return LEAD_PIP_MIN_SIZE_PX;
+  }
+
+  const distance = camera.position.distanceTo(targetPosition);
+  if (distance <= 0.001) {
+    return LEAD_PIP_MAX_SIZE_PX;
+  }
+
+  const verticalFovRadians = THREE.MathUtils.degToRad(camera.fov);
+  const projectedDiameter = (radiusMeters * 2 * viewportHeight) / (2 * Math.tan(verticalFovRadians / 2) * distance);
+  return Math.max(LEAD_PIP_MIN_SIZE_PX, Math.min(LEAD_PIP_MAX_SIZE_PX, projectedDiameter));
+}
+
+function targetGunDamageRadiusMeters(): number {
+  const capsuleRadii = AIRFRAME_BULLET_CAPSULES.flatMap((capsule) => [
+    vectorLength(capsule.start) + capsule.radius,
+    vectorLength(capsule.end) + capsule.radius
+  ]);
+  const boxRadii = AIRFRAME_BULLET_BOXES.map((box) => vectorLength(box.center) + vectorLength(box.halfExtents));
+  return Math.max(...capsuleRadii, ...boxRadii);
+}
+
+function vectorLength(vector: { x: number; y: number; z: number }): number {
+  return Math.hypot(vector.x, vector.y, vector.z);
 }
 
 export function calculateInterceptTime(origin: THREE.Vector3, target: THREE.Vector3, targetVelocity: THREE.Vector3, projectileSpeed: number): number | undefined {

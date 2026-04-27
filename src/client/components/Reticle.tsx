@@ -14,8 +14,12 @@ export const Reticle = forwardRef<HTMLDivElement>(function Reticle(_props, ref) 
         <span />
       </div>
       <div className="mouse-aim">
-        <span />
-        <span />
+        <span className="mouse-aim-ring" />
+        <span className="mouse-aim-center" />
+        <span className="mouse-aim-tick mouse-aim-tick-top" />
+        <span className="mouse-aim-tick mouse-aim-tick-right" />
+        <span className="mouse-aim-tick mouse-aim-tick-bottom" />
+        <span className="mouse-aim-tick mouse-aim-tick-left" />
       </div>
     </div>
   );
