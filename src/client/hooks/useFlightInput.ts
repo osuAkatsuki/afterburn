@@ -20,8 +20,8 @@ export type CameraLookInput = {
   pitch: number;
 };
 
-const MOUSE_AIM_RANGE_X = 0.42;
-const MOUSE_AIM_RANGE_Y = 0.38;
+const MOUSE_AIM_RANGE_X = 0.5;
+const MOUSE_AIM_RANGE_Y = 0.5;
 const FREE_LOOK_SENSITIVITY = 0.0032;
 const FREE_LOOK_MAX_YAW = Math.PI * 0.86;
 const FREE_LOOK_MAX_PITCH = Math.PI * 0.36;
@@ -120,12 +120,18 @@ export function useFlightInput({
         return;
       }
 
-      mouseAim.current = pointerAim(event);
+      mouseAim.current = document.pointerLockElement
+        ? pointerAimFromMovement(mouseAim.current, event)
+        : pointerAimFromPointerPosition(event);
       updateMouseAimMarker(mouseAim.current);
     };
     const onPointerDown = (event: PointerEvent) => {
       if (isEditableTarget(event.target)) {
         return;
+      }
+
+      if (roomRef.current?.phase === "playing") {
+        requestPointerLock(event.target);
       }
 
       if (event.button === 0) {
@@ -156,6 +162,16 @@ export function useFlightInput({
         event.preventDefault();
       }
     };
+    const onPointerLockChange = () => {
+      if (document.pointerLockElement) {
+        return;
+      }
+
+      if (freeLook.current.active) {
+        freeLook.current = { active: false, yaw: 0, pitch: 0 };
+        onCameraLookRef.current?.(freeLook.current);
+      }
+    };
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -164,6 +180,7 @@ export function useFlightInput({
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("contextmenu", onContextMenu);
     window.addEventListener("blur", clearKeys);
+    document.addEventListener("pointerlockchange", onPointerLockChange);
 
     let frame = 0;
     const inputIntervalMs = 1000 / 30;
@@ -203,6 +220,9 @@ export function useFlightInput({
         sendInputRef.current(input);
       } else if (currentRoom?.phase !== "playing") {
         nextInputAt.current = 0;
+        if (document.pointerLockElement) {
+          void document.exitPointerLock();
+        }
       }
 
       frame = requestAnimationFrame(tick);
@@ -218,17 +238,33 @@ export function useFlightInput({
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("contextmenu", onContextMenu);
       window.removeEventListener("blur", clearKeys);
+      document.removeEventListener("pointerlockchange", onPointerLockChange);
+      if (document.pointerLockElement) {
+        void document.exitPointerLock();
+      }
       document.documentElement.style.removeProperty("--mouse-aim-x");
       document.documentElement.style.removeProperty("--mouse-aim-y");
     };
   }, [setScoreboardVisible]);
 }
 
-function pointerAim(event: PointerEvent): MouseAimPoint {
+function pointerAimFromPointerPosition(event: PointerEvent): MouseAimPoint {
+  return pointerAimFromScreenPosition(event.clientX, event.clientY);
+}
+
+function pointerAimFromMovement(current: MouseAimPoint, event: PointerEvent): MouseAimPoint {
   const rangeX = Math.max(1, window.innerWidth * MOUSE_AIM_RANGE_X);
   const rangeY = Math.max(1, window.innerHeight * MOUSE_AIM_RANGE_Y);
-  const x = clamp((event.clientX - window.innerWidth / 2) / rangeX, -1, 1);
-  const y = clamp((event.clientY - window.innerHeight / 2) / rangeY, -1, 1);
+  const currentScreenX = current.screenX ?? window.innerWidth / 2 + current.x * rangeX;
+  const currentScreenY = current.screenY ?? window.innerHeight / 2 + current.y * rangeY;
+  return pointerAimFromScreenPosition(currentScreenX + event.movementX, currentScreenY + event.movementY);
+}
+
+function pointerAimFromScreenPosition(screenX: number, screenY: number): MouseAimPoint {
+  const rangeX = Math.max(1, window.innerWidth * MOUSE_AIM_RANGE_X);
+  const rangeY = Math.max(1, window.innerHeight * MOUSE_AIM_RANGE_Y);
+  const x = clamp((screenX - window.innerWidth / 2) / rangeX, -1, 1);
+  const y = clamp((screenY - window.innerHeight / 2) / rangeY, -1, 1);
   return {
     x,
     y,
@@ -246,6 +282,18 @@ function updateMouseAimMarker(aim: MouseAimPoint): void {
     "--mouse-aim-y",
     `${aim.screenY ?? window.innerHeight / 2 + aim.y * window.innerHeight * MOUSE_AIM_RANGE_Y}px`
   );
+}
+
+function requestPointerLock(target: EventTarget | null): void {
+  if (document.pointerLockElement || !(target instanceof HTMLElement)) {
+    return;
+  }
+
+  try {
+    void target.requestPointerLock();
+  } catch {
+    // Pointer lock can be blocked by the browser when not triggered from a direct gesture.
+  }
 }
 
 function axis(positiveKey: string, negativeKey: string, keys: Set<string>): number {

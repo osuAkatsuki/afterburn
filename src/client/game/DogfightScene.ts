@@ -14,6 +14,7 @@ import { ExplosionSystem } from "./effects/ExplosionSystem.js";
 import type { WorldPosition } from "./effects/ExplosionSystem.js";
 import { SmokeSystem } from "./effects/SmokeSystem.js";
 import { ReticleProjector } from "./targeting/ReticleProjector.js";
+import { TargetOverlayProjector } from "./targeting/TargetOverlayProjector.js";
 import { OceanSystem } from "./world/OceanSystem.js";
 import { SkySystem } from "./world/SkySystem.js";
 import { TerrainSystem } from "./world/TerrainSystem.js";
@@ -42,6 +43,7 @@ export class DogfightScene {
   private readonly camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, CAMERA_FAR);
   private readonly chaseCamera = new ChaseCamera(this.camera);
   private readonly reticleProjector: ReticleProjector;
+  private readonly targetOverlayProjector: TargetOverlayProjector;
   private readonly clock = new THREE.Clock();
   private readonly jetRenderer = new JetRenderer(this.scene);
   private readonly projectileRenderer = new ProjectileRenderer(this.scene);
@@ -68,8 +70,11 @@ export class DogfightScene {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
-  constructor(canvas: HTMLCanvasElement, reticle: HTMLElement | null) {
+  constructor(canvas: HTMLCanvasElement, reticle: HTMLElement | null, targetOverlay: HTMLElement | null) {
     this.reticleProjector = new ReticleProjector(reticle, this.camera, (playerId) =>
+      this.jetRenderer.getJet(playerId)
+    );
+    this.targetOverlayProjector = new TargetOverlayProjector(targetOverlay, this.camera, (playerId) =>
       this.jetRenderer.getJet(playerId)
     );
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -144,6 +149,7 @@ export class DogfightScene {
     this.chaseCamera.update(dt, this.state?.players[this.localPlayerId], this.jetRenderer.getJet(this.localPlayerId), this.cameraLook);
     this.skySystem.update(this.camera);
     this.reticleProjector.update(this.state, this.localPlayerId);
+    this.targetOverlayProjector.update(this.state, this.localPlayerId);
     this.combatEffects.update(now, dt, this.state);
     this.renderer.render(this.scene, this.camera);
   }
