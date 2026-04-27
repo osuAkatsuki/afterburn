@@ -244,6 +244,8 @@ export function useFlightInput({
       }
       document.documentElement.style.removeProperty("--mouse-aim-x");
       document.documentElement.style.removeProperty("--mouse-aim-y");
+      document.documentElement.style.removeProperty("--mouse-turn-opacity");
+      document.documentElement.style.removeProperty("--mouse-turn-offset");
     };
   }, [setScoreboardVisible]);
 }
@@ -274,6 +276,8 @@ function pointerAimFromScreenPosition(screenX: number, screenY: number): MouseAi
 }
 
 function updateMouseAimMarker(aim: MouseAimPoint): void {
+  const turnDemand = Math.min(1, Math.hypot(aim.x, aim.y));
+  const tickOffset = 3 + turnDemand * 12;
   document.documentElement.style.setProperty(
     "--mouse-aim-x",
     `${aim.screenX ?? window.innerWidth / 2 + aim.x * window.innerWidth * MOUSE_AIM_RANGE_X}px`
@@ -282,6 +286,8 @@ function updateMouseAimMarker(aim: MouseAimPoint): void {
     "--mouse-aim-y",
     `${aim.screenY ?? window.innerHeight / 2 + aim.y * window.innerHeight * MOUSE_AIM_RANGE_Y}px`
   );
+  document.documentElement.style.setProperty("--mouse-turn-opacity", clamp((turnDemand - 0.08) / 0.62, 0, 1).toFixed(3));
+  document.documentElement.style.setProperty("--mouse-turn-offset", `${tickOffset.toFixed(1)}px`);
 }
 
 function requestPointerLock(target: EventTarget | null): void {

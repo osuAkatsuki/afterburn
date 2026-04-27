@@ -458,12 +458,14 @@ meter {
 }
 
 .aim-overlay {
-  --reticle-color: rgb(248 250 252 / 82%);
-  --reticle-glow: rgb(248 250 252 / 22%);
+  --reticle-color: rgb(2 6 23 / 88%);
+  --reticle-contrast: rgb(255 255 255 / 42%);
+  --reticle-glow: rgb(255 255 255 / 18%);
   --reticle-x: 50%;
   --reticle-y: 50%;
   --lead-x: 50%;
   --lead-y: 50%;
+  --lead-size: 30px;
   position: fixed;
   inset: 0;
   opacity: 0;
@@ -479,22 +481,25 @@ meter {
   position: fixed;
   left: var(--reticle-x, 50%);
   top: var(--reticle-y, 50%);
-  width: 72px;
-  height: 72px;
+  width: 36px;
+  height: 36px;
   transform: translate(-50%, -50%);
 }
 
 .reticle span {
   position: absolute;
   background: var(--reticle-color);
-  box-shadow: 0 0 14px var(--reticle-glow);
+  box-shadow:
+    0 0 0 1px var(--reticle-contrast),
+    0 0 8px var(--reticle-glow);
 }
 
 .reticle span:nth-child(1),
 .reticle span:nth-child(2) {
   top: 50%;
-  width: 24px;
+  width: 11px;
   height: 2px;
+  transform: translateY(-50%);
 }
 
 .reticle span:nth-child(1) {
@@ -509,7 +514,8 @@ meter {
 .reticle span:nth-child(4) {
   left: 50%;
   width: 2px;
-  height: 24px;
+  height: 11px;
+  transform: translateX(-50%);
 }
 
 .reticle span:nth-child(3) {
@@ -538,8 +544,8 @@ meter {
   position: fixed;
   left: var(--lead-x, 50%);
   top: var(--lead-y, 50%);
-  width: 30px;
-  height: 30px;
+  width: var(--lead-size, 30px);
+  height: var(--lead-size, 30px);
   border: 1px solid rgb(253 224 71 / 86%);
   border-radius: 50%;
   opacity: 0;
@@ -582,9 +588,9 @@ meter {
   position: fixed;
   left: var(--mouse-aim-x, 50%);
   top: var(--mouse-aim-y, 50%);
-  width: 18px;
-  height: 18px;
-  opacity: 0.72;
+  width: 46px;
+  height: 46px;
+  opacity: 0.9;
   transform: translate(-50%, -50%);
 }
 
@@ -595,22 +601,61 @@ meter {
   transform: translate(-50%, -50%);
 }
 
-.mouse-aim span:first-child {
-  width: 16px;
-  height: 16px;
-  border: 1px solid rgb(139 233 255 / 72%);
+.mouse-aim-ring {
+  width: 38px;
+  height: 38px;
+  border: 2px solid rgb(2 6 23 / 72%);
   border-radius: 50%;
   box-shadow:
-    0 0 10px rgb(139 233 255 / 24%),
-    inset 0 0 8px rgb(139 233 255 / 14%);
+    0 0 0 1px rgb(255 255 255 / 34%),
+    0 0 10px rgb(255 255 255 / 18%),
+    inset 0 0 0 1px rgb(255 255 255 / 18%);
 }
 
-.mouse-aim span:last-child {
+.mouse-aim-center {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: rgb(139 233 255 / 86%);
-  box-shadow: 0 0 8px rgb(139 233 255 / 36%);
+  background: rgb(2 6 23 / 84%);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 36%),
+    0 0 7px rgb(255 255 255 / 22%);
+}
+
+.mouse-aim-tick {
+  opacity: var(--mouse-turn-opacity, 0);
+  background: rgb(2 6 23 / 84%);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 36%),
+    0 0 8px rgb(255 255 255 / 16%);
+}
+
+.mouse-aim-tick-top,
+.mouse-aim-tick-bottom {
+  width: 2px;
+  height: 11px;
+}
+
+.mouse-aim-tick-right,
+.mouse-aim-tick-left {
+  width: 11px;
+  height: 2px;
+}
+
+.mouse-aim-tick-top {
+  transform: translate(-50%, calc(-50% - var(--mouse-turn-offset, 3px)));
+}
+
+.mouse-aim-tick-right {
+  transform: translate(calc(-50% + var(--mouse-turn-offset, 3px)), -50%);
+}
+
+.mouse-aim-tick-bottom {
+  transform: translate(-50%, calc(-50% + var(--mouse-turn-offset, 3px)));
+}
+
+.mouse-aim-tick-left {
+  transform: translate(calc(-50% - var(--mouse-turn-offset, 3px)), -50%);
 }
 
 .target-overlay {
