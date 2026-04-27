@@ -9,24 +9,27 @@ https://afterburn.akatsuki.gg
 ## Features
 
 - Private browser rooms with shareable room codes.
-- 3D arcade jet flight with keyboard controls.
+- 3D arcade jet flight with mouse aim and keyboard controls.
 - Server-authoritative PvP simulation with local flight prediction and remote snapshot interpolation.
 - Guns, missiles, flares, lock-on behavior, damage, respawns, scoring, and terrain collisions.
 - Automatic reconnect/rejoin support for in-progress rooms.
 - Static frontend deployment through nginx plus a separate realtime Socket.IO server.
-- Debug performance/network/prediction overlay via `F3`.
+- Debug performance/network/prediction overlay and network capture tools via `F3`.
 
 ## Controls
 
+- Mouse movement: aim instructor / steer toward the aim point
+- Left click or `Space`: guns
+- Right click: free look
 - `W` / `S`: pitch
 - `A` / `D`: roll
 - Arrow keys or `IJKL`: alternate pitch/yaw controls
 - `Shift`: afterburner
-- `Space`: guns
 - `E`: missile
 - `F`: flare
 - `Tab`: scoreboard
 - `F3`: debug overlay
+- `R` / `O` / `C` while `F3` is open: record, export, or clear a network capture
 
 ## Local Development
 
@@ -53,6 +56,8 @@ The server uses Vite middleware in development, so the client hot reloads while 
 ## Networking Model
 
 The server owns room state and simulates the authoritative game loop. Clients send input frames, predict only their local aircraft for responsiveness, and reconcile against server acknowledgements. Remote aircraft and projectiles are rendered through a snapshot interpolation buffer using server send timestamps, clock sync, and adaptive jitter delay.
+
+Gun hits are validated server-side against a short room history using the shooter's measured latency and interpolation delay, so high-latency players can fire at what they actually saw while combat remains authoritative. The server also queues and consumes ordered input frames instead of relying on a single latest input value.
 
 Combat, scoring, respawns, terrain collisions, and room lifecycle decisions remain server-authoritative.
 
