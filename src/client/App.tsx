@@ -11,6 +11,7 @@ import { Radar } from "./components/Radar.js";
 import { Reticle } from "./components/Reticle.js";
 import { Scoreboard } from "./components/Scoreboard.js";
 import { TacticalWarnings } from "./components/TacticalWarnings.js";
+import { TargetOverlay } from "./components/TargetOverlay.js";
 import { DogfightScene } from "./game/DogfightScene.js";
 import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
@@ -30,6 +31,7 @@ export function App() {
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reticleRef = useRef<HTMLDivElement | null>(null);
+  const targetOverlayRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
   const worldPresenterRef = useRef(new ClientWorldPresenter());
 
@@ -173,10 +175,11 @@ export function App() {
   }, []);
 
   return (
-    <div className="shell">
+    <div className="shell" data-phase={room?.phase ?? "offline"}>
       <GameCanvas
         canvasRef={canvasRef}
         reticleRef={reticleRef}
+        targetOverlayRef={targetOverlayRef}
         sceneRef={sceneRef}
         worldPresenterRef={worldPresenterRef}
         playerId={playerId}
@@ -186,6 +189,7 @@ export function App() {
       <Hud room={room} localPlayer={localPlayer} />
       <FlightDirector room={room} localPlayer={localPlayer} />
       <Reticle ref={reticleRef} />
+      <TargetOverlay ref={targetOverlayRef} room={room} localPlayer={localPlayer} />
       <TacticalWarnings room={room} localPlayer={localPlayer} />
       <CombatFeedback notices={combatNotices} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />

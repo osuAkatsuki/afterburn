@@ -15,6 +15,7 @@ export type ClientDebugStats = SceneDebugStats & ClientWorldDebugStats & {
 type GameCanvasProps = {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   reticleRef: RefObject<HTMLDivElement | null>;
+  targetOverlayRef: RefObject<HTMLDivElement | null>;
   sceneRef: RefObject<DogfightScene | null>;
   worldPresenterRef: RefObject<ClientWorldPresenter>;
   playerId: string;
@@ -25,6 +26,7 @@ type GameCanvasProps = {
 export function GameCanvas({
   canvasRef,
   reticleRef,
+  targetOverlayRef,
   sceneRef,
   worldPresenterRef,
   playerId,
@@ -47,7 +49,7 @@ export function GameCanvas({
       return;
     }
 
-    const scene = new DogfightScene(canvas, reticleRef.current);
+    const scene = new DogfightScene(canvas, reticleRef.current, targetOverlayRef.current);
     let frame = 0;
     let previousNow = performance.now();
     let statSampleCount = 0;
@@ -107,7 +109,7 @@ export function GameCanvas({
       scene.destroy();
       sceneRef.current = null;
     };
-  }, [canvasRef, reticleRef, sceneRef, worldPresenterRef]);
+  }, [canvasRef, reticleRef, sceneRef, targetOverlayRef, worldPresenterRef]);
 
   return <canvas className="viewport" ref={canvasRef} />;
 }
