@@ -17,8 +17,10 @@ import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
 import { ClientWorldPresenter } from "./net/ClientWorldPresenter.js";
+import { NetworkCapture, type NetworkCaptureSummary } from "./net/NetworkCapture.js";
 import { getSnapshotInterpolationDelayMs } from "./net/SnapshotBuffer.js";
-import type { BotSkill } from "../shared/types.js";
+import type { BotSkill, RoomState } from "../shared/types.js";
+import type { NetworkStats } from "./net/NetworkTelemetry.js";
 
 const urlParams = new URLSearchParams(window.location.search);
 const urlRoom = urlParams.get("room")?.toUpperCase() ?? "";
@@ -34,6 +36,10 @@ export function App() {
   const targetOverlayRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<DogfightScene | null>(null);
   const worldPresenterRef = useRef(new ClientWorldPresenter());
+  const networkCaptureRef = useRef(new NetworkCapture());
+  const networkStatsRef = useRef<NetworkStats | undefined>(undefined);
+  const roomRef = useRef<RoomState | undefined>(undefined);
+  const playerIdRef = useRef("");
 
   const {
     addBot: emitAddBot,
@@ -60,6 +66,7 @@ export function App() {
   const [showEndScreen, setShowEndScreen] = useState(false);
   const [debugVisible, setDebugVisible] = useState(false);
   const [debugStats, setDebugStats] = useState<ClientDebugStats>();
+  const [captureSummary, setCaptureSummary] = useState<NetworkCaptureSummary>(() => networkCaptureRef.current.getSummary());
 
   const localPlayer = useMemo(() => (playerId && room ? room.players[playerId] : undefined), [playerId, room]);
   const snapshotInterpolationDelayMs = useMemo(() => getSnapshotInterpolationDelayMs(networkStats), [networkStats]);
@@ -68,6 +75,12 @@ export function App() {
   useEffect(() => {
     persistCallsign(callsign);
   }, [callsign]);
+
+  useEffect(() => {
+    networkStatsRef.current = networkStats;
+    roomRef.current = room;
+    playerIdRef.current = playerId;
+  }, [networkStats, playerId, room]);
 
   useEffect(() => {
     if (!room || !playerId) {
@@ -172,7 +185,51 @@ export function App() {
 
   const updateDebugStats = useCallback((stats: ClientDebugStats) => {
     setDebugStats(stats);
+    const summary = networkCaptureRef.current.record({
+      room: roomRef.current,
+      playerId: playerIdRef.current,
+      networkStats: networkStatsRef.current ?? networkStats,
+      debugStats: stats
+    });
+    if (summary) {
+      setCaptureSummary(summary);
+    }
   }, []);
+
+  const toggleNetworkCapture = useCallback(() => {
+    const capture = networkCaptureRef.current;
+    setCaptureSummary(capture.getSummary().recording ? capture.stop() : capture.start(`room-${roomRef.current?.id ?? "offline"}`));
+  }, []);
+
+  const clearNetworkCapture = useCallback(() => {
+    setCaptureSummary(networkCaptureRef.current.clear());
+  }, []);
+
+  const exportNetworkCapture = useCallback(() => {
+    downloadNetworkCapture(networkCaptureRef.current);
+  }, []);
+
+  useEffect(() => {
+    const onDebugCommand = (event: KeyboardEvent) => {
+      if (!debugVisible || event.repeat || isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (event.code === "KeyR") {
+        event.preventDefault();
+        toggleNetworkCapture();
+      } else if (event.code === "KeyO" && networkCaptureRef.current.getSummary().samples > 0) {
+        event.preventDefault();
+        exportNetworkCapture();
+      } else if (event.code === "KeyC" && networkCaptureRef.current.getSummary().samples > 0) {
+        event.preventDefault();
+        clearNetworkCapture();
+      }
+    };
+
+    window.addEventListener("keydown", onDebugCommand);
+    return () => window.removeEventListener("keydown", onDebugCommand);
+  }, [clearNetworkCapture, debugVisible, exportNetworkCapture, toggleNetworkCapture]);
 
   return (
     <div className="shell" data-phase={room?.phase ?? "offline"}>
@@ -194,7 +251,13 @@ export function App() {
       <CombatFeedback notices={combatNotices} playerId={playerId} room={room} />
       <Radar room={room} localPlayer={localPlayer} />
       <Scoreboard room={room} visible={scoreboardVisible} />
-      <DebugOverlay visible={debugVisible} stats={debugStats} networkStats={networkStats} />
+      <DebugOverlay
+        visible={debugVisible}
+        stats={debugStats}
+        networkStats={networkStats}
+        playerId={playerId}
+        capture={captureSummary}
+      />
       <Lobby
         visible={showLobby}
         connectionStatus={connectionStatus}
@@ -220,4 +283,21 @@ export function App() {
 
 function persistCallsign(callsign: string): void {
   window.localStorage.setItem("afterburn.callsign", callsign.trim());
+}
+
+function downloadNetworkCapture(capture: NetworkCapture): void {
+  const data = capture.exportData();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `afterburn-network-${data.label}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || target.matches("input, textarea, select"));
 }

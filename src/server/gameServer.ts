@@ -16,7 +16,7 @@ import {
   startRound,
   stepRoom
 } from "../shared/simulation.js";
-import type { BotSkill, CombatEvent, InputFrame, RoomState } from "../shared/types.js";
+import type { BotSkill, CombatEvent, InputFrame, RoomNetworkDebugStats, RoomState } from "../shared/types.js";
 import { createBotInput } from "./botPilot.js";
 import { PlayerInputQueue } from "./net/PlayerInputQueue.js";
 import { RoomHistory } from "./net/RoomHistory.js";
@@ -36,6 +36,11 @@ type PlayerNetworkStats = {
   interpolationDelayMs: number;
 };
 
+type RoomHistoryDebugCounters = {
+  historySamples: number;
+  historyClampedSamples: number;
+};
+
 export class GameRoomManager {
   readonly rooms = new Map<string, RoomState>();
   private readonly playerRooms = new Map<string, string>();
@@ -44,6 +49,7 @@ export class GameRoomManager {
   private readonly disconnectedAt = new Map<string, number>();
   private readonly inputQueues = new Map<string, PlayerInputQueue>();
   private readonly playerNetworkStats = new Map<string, PlayerNetworkStats>();
+  private readonly roomHistoryDebug = new Map<string, RoomHistoryDebugCounters>();
   private readonly roomHistory = new RoomHistory();
   private tick = 0;
 
@@ -340,9 +346,14 @@ export class GameRoomManager {
         this.consumeQueuedInputs(room);
         this.updateBotInputs(room, now);
       }
+      this.roomHistoryDebug.set(room.id, { historySamples: 0, historyClampedSamples: 0 });
       const events = stepRoom(room, 1 / TICK_RATE, now, {
         getCombatRewindMs: (attacker) => this.combatRewindMs(attacker.id),
-        sampleHistoricalPlayer: (playerId, serverTime) => this.roomHistory.samplePlayer(room.id, playerId, serverTime)
+        sampleHistoricalPlayer: (playerId, serverTime) => {
+          const sample = this.roomHistory.samplePlayer(room.id, playerId, serverTime);
+          this.recordHistorySample(room.id, Boolean(sample?.clamped));
+          return sample;
+        }
       });
       const ended = wasPlaying && room.phase === "ended";
       if (wasPlaying) {
@@ -359,6 +370,33 @@ export class GameRoomManager {
 
   getTick(): number {
     return this.tick;
+  }
+
+  getNetworkDebugStats(roomId: string): RoomNetworkDebugStats | undefined {
+    const room = this.rooms.get(normalizeRoomId(roomId));
+    if (!room) {
+      return undefined;
+    }
+
+    const history = this.roomHistoryDebug.get(room.id) ?? { historySamples: 0, historyClampedSamples: 0 };
+    return {
+      historySamples: history.historySamples,
+      historyClampedSamples: history.historyClampedSamples,
+      players: Object.fromEntries(
+        Object.keys(room.players).map((playerId) => {
+          const inputStats = this.inputQueues.get(playerId)?.stats();
+          return [
+            playerId,
+            {
+              combatRewindMs: this.combatRewindMs(playerId),
+              inputQueued: inputStats?.queued ?? 0,
+              inputDropped: inputStats?.dropped ?? 0,
+              inputConsumed: inputStats?.consumed ?? 0
+            }
+          ];
+        })
+      )
+    };
   }
 
   getRoomForPlayer(socketId: string): RoomState | undefined {
@@ -429,11 +467,16 @@ export class GameRoomManager {
       if (nextInput) {
         setPlayerInput(player, nextInput);
       }
-
-      if (queue.isEmpty()) {
-        this.inputQueues.delete(player.id);
-      }
     });
+  }
+
+  private recordHistorySample(roomId: string, clamped: boolean): void {
+    const counters = this.roomHistoryDebug.get(roomId) ?? { historySamples: 0, historyClampedSamples: 0 };
+    counters.historySamples += 1;
+    if (clamped) {
+      counters.historyClampedSamples += 1;
+    }
+    this.roomHistoryDebug.set(roomId, counters);
   }
 
   private clearRoomInputQueues(room: RoomState): void {
@@ -464,6 +507,7 @@ export class GameRoomManager {
     });
     this.rooms.delete(room.id);
     this.roomHistory.deleteRoom(room.id);
+    this.roomHistoryDebug.delete(room.id);
   }
 
   private combatRewindMs(playerId: string): number {

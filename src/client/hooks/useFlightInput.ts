@@ -101,7 +101,7 @@ export function useFlightInput({
       setScoreboardVisible(false);
     };
     const onPointerMove = (event: PointerEvent) => {
-      if (isEditableTarget(event.target)) {
+      if (isInteractiveTarget(event.target)) {
         return;
       }
 
@@ -126,7 +126,7 @@ export function useFlightInput({
       updateMouseAimMarker(mouseAim.current);
     };
     const onPointerDown = (event: PointerEvent) => {
-      if (isEditableTarget(event.target)) {
+      if (isInteractiveTarget(event.target)) {
         return;
       }
 
@@ -335,4 +335,12 @@ function isEditableTarget(target: EventTarget | null): boolean {
   }
 
   return target.isContentEditable || target.matches("input, textarea, select");
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return target.isContentEditable || Boolean(target.closest("button, input, textarea, select, a"));
 }
