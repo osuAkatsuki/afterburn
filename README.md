@@ -62,7 +62,11 @@ Combat, scoring, respawns, terrain collisions, and room lifecycle decisions rema
 npm run typecheck
 npm test
 npm run build
+npm run network:qa
+npm run network:browser-qa
 ```
+
+`network:browser-qa` launches automated Chrome clients, creates a multiplayer room, applies Socket.IO WebSocket latency profiles, and writes a report to `artifacts/network-browser-qa/latest.json`. Set `AFTERBURN_BROWSER_EXECUTABLE=/path/to/chrome` if Chrome is not installed in a standard location.
 
 ## Production Packaging
 

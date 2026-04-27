@@ -11,6 +11,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "start": "NODE_ENV=production node dist/node/server/index.js",
     "network:qa": "node scripts/network-qa.mjs",
+    "network:browser-qa": "node scripts/network-browser-qa.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
@@ -31,6 +32,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.184.0",
+    "playwright-core": "^1.51.1",
     "tsx": "^4.21.0",
     "typescript": "5.5.3",
     "vite": "^6.4.2",
