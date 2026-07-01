@@ -69,11 +69,8 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
-          envs: GHCR_TOKEN
           script: |
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+            set -e
             cd /opt/akatsuki
             docker compose pull afterburn-server afterburn-web
             docker compose up -d afterburn-server afterburn-web
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
