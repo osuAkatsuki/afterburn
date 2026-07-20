@@ -15,6 +15,7 @@ import { TargetOverlay } from "./components/TargetOverlay.js";
 import { DogfightScene } from "./game/DogfightScene.js";
 import { useCombatEventEffects } from "./hooks/useCombatEventEffects.js";
 import { useFlightInput } from "./hooks/useFlightInput.js";
+import { useGameAudio } from "./hooks/useGameAudio.js";
 import { useGameSocket } from "./hooks/useGameSocket.js";
 import { ClientWorldPresenter } from "./net/ClientWorldPresenter.js";
 import { NetworkCapture, type NetworkCaptureSummary } from "./net/NetworkCapture.js";
@@ -71,6 +72,13 @@ export function App() {
   const localPlayer = useMemo(() => (playerId && room ? room.players[playerId] : undefined), [playerId, room]);
   const snapshotInterpolationDelayMs = useMemo(() => getSnapshotInterpolationDelayMs(networkStats), [networkStats]);
   const showLobby = room?.phase !== "playing" && !showEndScreen;
+
+  useGameAudio({
+    room,
+    localPlayer,
+    playerId,
+    combatNotice
+  });
 
   useEffect(() => {
     persistCallsign(callsign);

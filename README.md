@@ -27,6 +27,7 @@ https://afterburn.akatsuki.gg
 - `Shift`: afterburner
 - `E`: missile
 - `F`: flare
+- `M`: mute/unmute audio
 - `Tab`: scoreboard
 - `F3`: debug overlay
 - `R` / `O` / `C` while `F3` is open: record, export, or clear a network capture
